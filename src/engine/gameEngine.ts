@@ -165,18 +165,12 @@ export function callPartner(state: GameState, declarer: PlayerIndex, calledCard:
   if (state.phase !== 'PARTNER_CALL') throw new Error('Not in partner call phase');
   if (state.auction.declarer !== declarer) throw new Error('Not the declarer');
 
-  // Check called card is not in declarer's hand
-  if (findCardInHand(state.hands[declarer], calledCard) !== -1) {
-    throw new Error('Cannot call a card in your own hand');
-  }
-
-  // Find who has the called card
+  // Whoever holds the called card is partner. Calling a card in the declarer's own
+  // hand is legal: the declarer then plays alone against the other three.
   const partner = PLAYERS.find(p => findCardInHand(state.hands[p], calledCard) !== -1);
   if (partner === undefined) throw new Error('Called card not found in any hand');
-  if (partner === declarer) throw new Error('Cannot call your own card');
 
-  const otherPlayers = PLAYERS.filter(p => p !== declarer && p !== partner);
-  const defenders: [PlayerIndex, PlayerIndex] = [otherPlayers[0], otherPlayers[1]];
+  const defenders = PLAYERS.filter(p => p !== declarer && p !== partner);
 
   const partnerships: Partnership = {
     declarer,
@@ -401,7 +395,7 @@ export function getGameStatusText(state: GameState): string {
       return `${PLAYER_NAMES[currentPlayer ?? 0]} to open the bidding`;
     case 'PARTNER_CALL':
       return state.auction.declarer === 0
-        ? 'You won the auction. Choose a card you do not hold to call your partner.'
+        ? 'You won the auction. Call a card: whoever holds it becomes your partner.'
         : `${PLAYER_NAMES[state.auction.declarer!]} won the auction and is choosing a card to call a partner.`;
     case 'TRICK_PLAY': {
       const trickNum = state.tricks.completed.length + 1;

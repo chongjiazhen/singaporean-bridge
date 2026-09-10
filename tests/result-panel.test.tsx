@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { GameTable } from '../src/components/GameTable';
+import { GameTable, SoloCallWarning } from '../src/components/GameTable';
 import type { GameState, PlayerIndex } from '../src/engine/types';
 import { DEFAULT_RULES } from '../src/engine/types';
 import {
@@ -75,6 +75,45 @@ describe('Wash display', () => {
   it('says nothing about washing when the rule is off', () => {
     const html = render(startAuction(createInitialState(0, { ...DEFAULT_RULES, wash: false })));
     expect(html).not.toMatch(/yours has/);
+  });
+});
+
+describe('Solo call display', () => {
+  /** South wins the auction and calls a card from their own hand, then plays the hand out. */
+  function southSolo(hiddenPartner: boolean, until: GameState['phase']): GameState {
+    let s = startAuction(createInitialState(3, { ...DEFAULT_RULES, hiddenPartner })); // South opens
+    s = makeBid(s, 0, 7, 'NoTrump');
+    let guard = 0;
+    while (s.phase !== until && guard++ < 200) {
+      const p = s.currentPlayer as PlayerIndex;
+      if (s.phase === 'PARTNER_CALL') { s = callPartner(s, 0, s.hands[0][0]); continue; }
+      const d = makeAiDecision(s, p);
+      if (d.action === 'pass') s = pass(s, p);
+      else s = playCard(s, p, d.card!);
+    }
+    expect(s.phase).toBe(until);
+    return s;
+  }
+
+  it('warning toast names the card and needs confirmation', () => {
+    const noop = () => {};
+    const card = { suit: 'Hearts' as const, rank: 'K' as const };
+    const hidden = renderToStaticMarkup(<SoloCallWarning card={card} hiddenPartner={true} onConfirm={noop} onCancel={noop} />);
+    expect(hidden).toContain('role="alertdialog"');
+    expect(hidden).toContain('Play alone?');
+    expect(hidden).toContain('Cancel');
+    expect(hidden).toContain('Call it and play alone');
+    expect(hidden).toContain('will not know that until you play');
+    const open = renderToStaticMarkup(<SoloCallWarning card={card} hiddenPartner={false} onConfirm={noop} onCancel={noop} />);
+    expect(open).toContain('know straight away');
+  });
+
+  it('tells the solo declarer they play alone, and the result shows no partner', () => {
+    const play = southSolo(true, 'TRICK_PLAY');
+    expect(render(play)).toContain('You play alone against all three.');
+    const done = southSolo(true, 'HAND_RESULT');
+    expect(render(done)).toContain('called their own');
+    expect(render(done)).toContain('<strong>none</strong>');
   });
 });
 

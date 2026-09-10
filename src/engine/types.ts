@@ -85,8 +85,15 @@ export interface Trick {
 
 export interface Partnership {
   declarer: PlayerIndex;
+  /** Holder of the called card. Equals `declarer` when they called their own card and play alone. */
   partner: PlayerIndex;
-  defenders: [PlayerIndex, PlayerIndex];
+  /** Two defenders, or three against a declarer playing alone. */
+  defenders: PlayerIndex[];
+}
+
+/** True when the declarer called a card they hold: no partner, three defenders. */
+export function isSolo(p: Partnership): boolean {
+  return p.partner === p.declarer;
 }
 
 /** Configurable variant rules (SPEC 27). Carried from hand to hand. */

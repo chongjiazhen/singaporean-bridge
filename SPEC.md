@@ -234,7 +234,7 @@ Immediately after the auction, the declarer selects one specific card as the cal
 
 Rules:
 
-1. The called card must NOT be in declarer's own hand.
+1. The called card is normally one NOT in declarer's own hand (but see 6.1).
 2. The called card may be any rank and suit.
 3. The card must exist in the deck, obviously.
 4. The called card identifies declarer's partner.
@@ -253,6 +253,19 @@ South calls:
 The player holding Ace of Hearts becomes South's partner.
 
 The remaining two players become the opposing partnership.
+
+6.1 Calling your own card (playing alone)
+
+It is legal for the declarer to call a card they hold. A declarer confident their hand can make the contract unassisted may do this rather than share the win with a partner.
+
+- The declarer has no partner and must win the contract's tricks alone.
+- The other three players all defend.
+- Under hidden partner (section 7), the defenders cannot tell a solo call from a normal one until the declarer plays the called card. Until then each defender knows only that the declarer is an opponent, so the three cannot coordinate. This is the strategic point of the call.
+- With hidden partner off, the solo call is public immediately.
+
+The UI must not make this an accidental click: selecting a card in the human's own hand opens a warning toast, and the call is made only when the human confirms.
+
+The computer players never call their own card.
 
 ---
 
@@ -587,11 +600,11 @@ Auction
 
 Partner
 
-- Called card cannot be in declarer's hand.
 - Exactly one player owns the called card.
 - That player becomes partner.
 - Declarer + partner form one partnership.
 - Remaining two players form the other.
+- If declarer owns the called card, declarer plays alone and the other three defend.
 
 Trick play
 
@@ -664,7 +677,7 @@ The suit in the winning bid becomes trump.
 
 Step 4 — Call a card
 
-The declarer chooses a card they do not hold.
+The declarer chooses a card they do not hold. (A declarer confident of winning alone may call their own card; section 6.1.)
 
 Whoever has that card becomes their partner.
 
@@ -749,7 +762,7 @@ During bidding:
 During partner calling:
 
 - Display the human's hand.
-- Prevent selection of cards in the human's hand.
+- Mark cards in the human's hand. Selecting one opens a warning toast explaining the declarer will play alone; the call happens only on confirmation.
 - Clearly state that the selected card determines the partner.
 - Explain the consequence before confirmation.
 
@@ -897,7 +910,8 @@ Auction tests
 
 Partner tests
 
-- cannot call card in own hand
+- calling a card in own hand: declarer plays alone against three defenders, only declarer's tricks count
+- solo call under hidden partner: defenders cannot tell until the called card is played
 - correct partner identified
 - correct defenders identified
 - declarer's left leads a suit contract, declarer leads no trump

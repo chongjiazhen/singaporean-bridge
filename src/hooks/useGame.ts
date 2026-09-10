@@ -5,7 +5,7 @@ import {
   callPartner, playCard, startNextHand, getLegalPlays,
   getGameStatusText, canPass, setRules
 } from '../engine/gameEngine';
-import { getLegalBids, cardsEqual, createDeck, findCardInHand, DEFAULT_RULES } from '../engine/types';
+import { getLegalBids, cardsEqual, createDeck, DEFAULT_RULES } from '../engine/types';
 
 const RULES_KEY = 'singaporean-bridge.rules';
 
@@ -60,9 +60,10 @@ function humanLegalPlays(state: GameState): Card[] {
   return state.phase === 'TRICK_PLAY' && state.currentPlayer === 0 ? getLegalPlays(state, 0) : [];
 }
 
+/** Every card is callable, including your own (play alone); the UI asks for confirmation on those. */
 function humanCallableCards(state: GameState): Card[] {
   if (state.phase !== 'PARTNER_CALL' || state.currentPlayer !== 0) return [];
-  return createDeck().filter(card => findCardInHand(state.hands[0], card) === -1);
+  return createDeck();
 }
 
 export function useGame() {

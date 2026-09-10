@@ -2,10 +2,10 @@ import { describe, it, expect } from 'vitest';
 import type { Card, GameState, PlayerIndex, Rank, Strain, Suit } from '../src/engine/types';
 import {
   createDeck, dealCards, compareBids, getLegalBids, isHigherBid, createCard, contractFor,
-  SUITS, RANKS, DEFAULT_RULES, handPoints, isWash,
+  SUITS, RANKS, DEFAULT_RULES, handPoints, isWash, isSolo,
 } from '../src/engine/types';
 import {
-  createStateFromHands, startAuction, makeBid, pass, canPass, getFirstBidder,
+  createStateFromHands, startAuction, makeBid, pass, canPass, getFirstBidder, countTricksWon,
   callPartner, playCard, getLegalPlays, isContractMade, meetsContract, startNextHand,
   getSideKnowledge, isPartnershipPublic, isCalledCardPlayed, createInitialState, MAX_WASHES,
 } from '../src/engine/gameEngine';
@@ -199,9 +199,20 @@ describe('Auction', () => {
 // ---------- partner call ----------
 
 describe('Partner call', () => {
-  it("rejects a card in the declarer's own hand", () => {
+  it("allows a card in the declarer's own hand: declarer plays alone against three", () => {
     const state = auctionWonBy(createStateFromHands(suitPerPlayer(), 0), 1, 1, 'Hearts');
-    expect(() => callPartner(state, 1, createCard('Hearts', 'A'))).toThrow('Cannot call a card in your own hand');
+    const next = callPartner(state, 1, createCard('Hearts', 'A')); // all hearts are West's
+    expect(next.phase).toBe('TRICK_PLAY');
+    expect(next.partnerships).toEqual({ declarer: 1, partner: 1, defenders: [0, 2, 3] });
+    expect(isSolo(next.partnerships!)).toBe(true);
+    expect(next.tricks.current?.leader).toBe(2);
+  });
+
+  it('a solo declarer counts only their own tricks', () => {
+    const trick = (winner: PlayerIndex) => ({ cards: [], leader: winner, winner, ledSuit: null, trumpSuit: null });
+    const tricks = [trick(1), trick(1), trick(2), trick(3), trick(0)];
+    expect(countTricksWon(tricks, { declarer: 1, partner: 1, defenders: [0, 2, 3] })).toBe(2);
+    expect(countTricksWon(tricks, { declarer: 1, partner: 3, defenders: [0, 2] })).toBe(3);
   });
 
   it('identifies partner by the called card and the other two as defenders', () => {
@@ -414,6 +425,30 @@ describe('Hidden partner rules', () => {
     expect(isPartnershipPublic(s)).toBe(true);
     expect(getSideKnowledge(s, 1)).toEqual({ 0: 'opponent', 1: 'self', 2: 'ally', 3: 'opponent' });
     expect(getSideKnowledge(s, 0)).toEqual({ 0: 'self', 1: 'opponent', 2: 'opponent', 3: 'ally' });
+  });
+
+  it('hidden rules, solo call: defenders cannot tell until the declarer plays the called card', () => {
+    // West declares 1♥ and calls 2H from their own hand. North leads.
+    let s = auctionWonBy(createStateFromHands(suitPerPlayer(), 0, hidden), 1, 1, 'Hearts');
+    s = callPartner(s, 1, createCard('Hearts', '2'));
+    expect(isPartnershipPublic(s)).toBe(false);
+    expect(getSideKnowledge(s, 1)).toEqual({ 0: 'opponent', 1: 'self', 2: 'opponent', 3: 'opponent' });
+    expect(getSideKnowledge(s, 0)).toEqual({ 0: 'self', 1: 'opponent', 2: 'unknown', 3: 'unknown' });
+    expect(getSideKnowledge(s, 2)).toEqual({ 0: 'unknown', 1: 'opponent', 2: 'self', 3: 'unknown' });
+    // North leads a club, East a diamond, South a spade, then West must play a heart: the 2H reveal.
+    s = playCard(s, 2, createCard('Clubs', 'A'));
+    s = playCard(s, 3, createCard('Diamonds', 'A'));
+    s = playCard(s, 0, createCard('Spades', 'A'));
+    expect(isPartnershipPublic(s)).toBe(false);
+    s = playCard(s, 1, createCard('Hearts', '2'));
+    expect(isPartnershipPublic(s)).toBe(true);
+    expect(getSideKnowledge(s, 0)).toEqual({ 0: 'self', 1: 'opponent', 2: 'ally', 3: 'ally' });
+  });
+
+  it('open rules, solo call: everyone knows at once', () => {
+    const s = callPartner(auctionWonBy(createStateFromHands(suitPerPlayer(), 0, OPEN), 1, 1, 'Hearts'), 1, createCard('Hearts', '2'));
+    expect(isPartnershipPublic(s)).toBe(true);
+    expect(getSideKnowledge(s, 3)).toEqual({ 0: 'ally', 1: 'opponent', 2: 'ally', 3: 'self' });
   });
 
   it('AI plays complete legal hands under both rule sets', () => {

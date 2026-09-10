@@ -3,7 +3,7 @@ import { CardComponent } from './Card';
 import type { GameState, Card, Suit, Strain, PlayerIndex, Bid, GameRules, Trick, Contract } from '../engine/types';
 import {
   PLAYER_NAMES, SUIT_SYMBOLS, SUIT_COLORS, STRAIN_SYMBOLS, STRAINS, SUITS, RANKS, PLAYERS,
-  MIN_LEVEL, MAX_LEVEL, tricksForLevel, cardsEqual, handPoints, MIN_WASH_POINTS, MAX_WASH_POINTS,
+  MIN_LEVEL, MAX_LEVEL, tricksForLevel, cardsEqual, handPoints, isSolo, MIN_WASH_POINTS, MAX_WASH_POINTS,
 } from '../engine/types';
 import { countTricksWon, getSideKnowledge, isPartnershipPublic } from '../engine/gameEngine';
 import { X, HelpCircle } from 'lucide-react';
@@ -215,14 +215,53 @@ function BiddingPanel({ state, legalBids, canPass, onBid, onPass }: {
   );
 }
 
-function PartnerCallPanel({ contract, hiddenPartner, availableCallCards, onCallCard }: {
+/** Warning toast shown before the declarer calls a card they hold and so plays alone. */
+export function SoloCallWarning({ card, hiddenPartner, onConfirm, onCancel }: {
+  card: Card;
+  hiddenPartner: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div
+      role="alertdialog"
+      aria-labelledby="solo-call-title"
+      className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 w-[min(28rem,calc(100%-2rem))]
+        bg-amber-50 dark:bg-amber-950 border-2 border-amber-500 rounded-lg shadow-lg p-4 text-left"
+    >
+      <div id="solo-call-title" className="font-semibold text-amber-900 dark:text-amber-100">
+        You hold <CardText card={card} />. Play alone?
+      </div>
+      <p className="text-sm text-amber-800 dark:text-amber-200 mt-1">
+        Calling your own card means no partner: you must win the contract alone against all three other players.
+        {hiddenPartner
+          ? <> They will not know that until you play <CardText card={card} />.</>
+          : ' With hidden partner off, they will know straight away.'}
+      </p>
+      <div className="flex justify-end gap-2 mt-3">
+        <button onClick={onCancel} className="px-3 py-1 text-sm rounded border border-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900">
+          Cancel
+        </button>
+        <button onClick={onConfirm} className="px-3 py-1 text-sm rounded bg-amber-600 text-white font-medium hover:bg-amber-700">
+          Call it and play alone
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PartnerCallPanel({ contract, hiddenPartner, hand, availableCallCards, onCallCard }: {
   contract: Contract;
   hiddenPartner: boolean;
+  hand: Card[];
   availableCallCards: Card[];
   onCallCard: (card: Card) => void;
 }) {
   // Mounted only during the human's PARTNER_CALL, so this default is the real trump suit.
   const [suit, setSuit] = useState<Suit>(contract.trumpSuit ?? 'Spades');
+  // A card from your own hand waits here until the warning is confirmed.
+  const [pendingSolo, setPendingSolo] = useState<Card | null>(null);
+  const holds = (card: Card) => hand.some(c => cardsEqual(c, card));
 
   return (
     <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-4 border border-yellow-200 dark:border-yellow-800">
@@ -238,26 +277,41 @@ function PartnerCallPanel({ contract, hiddenPartner, availableCallCards, onCallC
       <StrainPicker options={SUITS} selected={suit} enabled={s => availableCallCards.some(c => c.suit === s)} onSelect={setSuit} />
 
       <div className="flex flex-wrap gap-2 justify-center">
-        {RANKS.map(rank => (
-          <button
-            key={rank}
-            onClick={() => onCallCard({ suit, rank })}
-            disabled={!availableCallCards.some(c => c.rank === rank && c.suit === suit)}
-            className="px-2 py-1 text-xs font-medium rounded border transition-colors
-              disabled:opacity-30 disabled:cursor-not-allowed
-              bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600
-              hover:bg-yellow-100 dark:hover:bg-yellow-900/30
-              text-gray-800 dark:text-gray-200"
-          >
-            {rank} {SUIT_SYMBOLS[suit]}
-          </button>
-        ))}
+        {RANKS.map(rank => {
+          const card = { suit, rank };
+          const own = holds(card);
+          return (
+            <button
+              key={rank}
+              onClick={() => (own ? setPendingSolo(card) : onCallCard(card))}
+              disabled={pendingSolo !== null || !availableCallCards.some(c => cardsEqual(c, card))}
+              title={own ? 'In your hand: calling it means playing alone' : undefined}
+              className={`px-2 py-1 text-xs font-medium rounded border transition-colors
+                disabled:opacity-30 disabled:cursor-not-allowed
+                bg-white dark:bg-gray-800 hover:bg-yellow-100 dark:hover:bg-yellow-900/30
+                ${own
+                  ? 'border-dashed border-amber-500 text-gray-400 dark:text-gray-500'
+                  : 'border-gray-300 dark:border-gray-600 text-gray-800 dark:text-gray-200'}`}
+            >
+              {rank} {SUIT_SYMBOLS[suit]}
+            </button>
+          );
+        })}
       </div>
 
       <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-3 text-center">
-        Cards in your own hand are greyed out. A common choice is
+        Cards in your own hand are dashed: calling one means playing alone. A common choice is
         {contract.trumpSuit ? ' the highest trump you don\'t hold.' : ' an ace you don\'t hold.'}
       </p>
+
+      {pendingSolo && (
+        <SoloCallWarning
+          card={pendingSolo}
+          hiddenPartner={hiddenPartner}
+          onConfirm={() => onCallCard(pendingSolo)}
+          onCancel={() => setPendingSolo(null)}
+        />
+      )}
     </div>
   );
 }
@@ -311,11 +365,11 @@ function TrickArea({ state }: { state: GameState }) {
           {publicSides ? (
             <>
               <div>
-                {PLAYER_NAMES[p.declarer]} + {PLAYER_NAMES[p.partner]}:{' '}
+                {isSolo(p) ? `${PLAYER_NAMES[p.declarer]} alone` : `${PLAYER_NAMES[p.declarer]} + ${PLAYER_NAMES[p.partner]}`}:{' '}
                 <strong>{declarerSide}</strong> / {state.contract.tricksRequired} needed
               </div>
               <div>
-                {PLAYER_NAMES[p.defenders[0]]} + {PLAYER_NAMES[p.defenders[1]]}: <strong>{defenderSide}</strong>
+                {p.defenders.map(d => PLAYER_NAMES[d]).join(' + ')}: <strong>{defenderSide}</strong>
               </div>
             </>
           ) : (
@@ -343,17 +397,25 @@ function ContractBadge({ state }: { state: GameState }) {
 
   let side: string | null = null;
   if (p && called) {
-    if (p.declarer === 0) {
+    if (p.declarer === 0 && isSolo(p)) {
+      side = isPartnershipPublic(state)
+        ? 'You play alone against all three.'
+        : 'You play alone against all three. They do not know yet.';
+    } else if (p.declarer === 0) {
       side = holderKnown ? `Your partner is ${PLAYER_NAMES[p.partner]}.` : 'Your partner is whoever holds the called card. Not yet known.';
     } else if (p.partner === 0) {
       side = isPartnershipPublic(state)
         ? `You are ${PLAYER_NAMES[p.declarer]}'s partner.`
         : `You hold the called card: you are ${PLAYER_NAMES[p.declarer]}'s secret partner.`;
     } else {
-      const other = p.defenders.find(d => d !== 0)!;
-      side = known[other] === 'ally'
-        ? `You defend with ${PLAYER_NAMES[other]}.`
-        : `You defend against ${PLAYER_NAMES[p.declarer]}. Their partner is not yet known.`;
+      const allies = p.defenders.filter(d => d !== 0 && known[d] === 'ally').map(d => PLAYER_NAMES[d]);
+      if (allies.length === 0) {
+        side = `You defend against ${PLAYER_NAMES[p.declarer]}. Their partner is not yet known.`;
+      } else if (isSolo(p)) {
+        side = `You defend with ${allies.join(' and ')}. ${PLAYER_NAMES[p.declarer]} called their own card and plays alone.`;
+      } else {
+        side = `You defend with ${allies.join(' and ')}.`;
+      }
     }
   }
 
@@ -366,7 +428,7 @@ function ContractBadge({ state }: { state: GameState }) {
       {called && p && (
         <span className={pill}>
           Called <CardText card={called} />
-          {holderKnown ? <>, held by <strong>{PLAYER_NAMES[p.partner]}</strong></> : ', holder hidden'}
+          {holderKnown ? <>, held by <strong>{PLAYER_NAMES[p.partner]}</strong>{isSolo(p) && ' (declarer, alone)'}</> : ', holder hidden'}
         </span>
       )}
       {side && <span className={`${pill} font-medium`}>{side}</span>}
@@ -441,7 +503,11 @@ function ResultPanel({ state, onNewHand }: { state: GameState; onNewHand: () => 
 
         <div className="space-y-1 mb-4">
           <p>Contract: <BidText bid={state.contract} /> by <strong>{PLAYER_NAMES[declarer]}</strong> ({contractTerms(state.contract)})</p>
-          <p>Partner: <strong>{PLAYER_NAMES[partner]}</strong>{state.calledCard && <> (held <CardText card={state.calledCard} />)</>}</p>
+          {partner === declarer ? (
+            <p>Partner: <strong>none</strong>{state.calledCard && <> ({PLAYER_NAMES[declarer]} called their own <CardText card={state.calledCard} /> and played alone)</>}</p>
+          ) : (
+            <p>Partner: <strong>{PLAYER_NAMES[partner]}</strong>{state.calledCard && <> (held <CardText card={state.calledCard} />)</>}</p>
+          )}
           <p>Tricks won: <strong>{state.result.tricksWonByDeclarer} / {state.contract.tricksRequired}</strong></p>
         </div>
 
@@ -463,7 +529,7 @@ function TutorialOverlay({ onClose }: { onClose: () => void }) {
     'Deal: everyone receives 13 private cards. A hand scores A 4, K 3, Q 2, J 1, plus 1 for each card past the fourth in a suit. With the wash rule on (the default), if any hand has fewer than 4 points the deal is a wash: the cards are shuffled and redealt.',
     "Bid: a bid is a level from 1 to 7 plus a strain (a trump suit, or no trump). Your side must win level + 6 tricks, so 1♠ needs 7 and 7NT needs all 13. A higher level wins; at the same level NT > ♠ > ♥ > ♣ > ♦. You don't know who your partner is yet!",
     'The first bidder may not pass. The auction ends when only one bidder is left, and their bid becomes the contract.',
-    "Call a card: the declarer names a card they don't hold. Whoever has it becomes their partner. With hidden partner on (the default), only that player knows until the card is played.",
+    "Call a card: the declarer names a card they don't hold. Whoever has it becomes their partner. With hidden partner on (the default), only that player knows until the card is played. A declarer confident of winning alone may call a card they hold: they then have no partner and face all three, who may not realise until that card appears.",
     "Play: in a suit contract the player to declarer's left leads; in no trump the declarer leads. Follow suit if you can. Trumps beat everything else; otherwise the highest card of the led suit wins, and the winner leads next.",
     'Check the contract: if the declarer and partner win at least level + 6 tricks, they succeed.',
   ];
@@ -625,6 +691,7 @@ export function GameTable({
             <PartnerCallPanel
               contract={state.contract!}
               hiddenPartner={state.rules.hiddenPartner}
+              hand={humanHand}
               availableCallCards={availableCallCards}
               onCallCard={onCallCard}
             />
