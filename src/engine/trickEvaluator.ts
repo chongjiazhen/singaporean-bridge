@@ -1,14 +1,18 @@
 import type { Card, Suit } from './types';
 import { RANK_ORDER } from './types';
 
+/**
+ * Compare two cards within a trick. Positive when `a` beats `b`.
+ * `trumpSuit` is null in a no-trump contract.
+ */
 export function compareCardsInTrick(
   a: Card,
   b: Card,
   ledSuit: Suit,
-  trumpSuit: Suit
+  trumpSuit: Suit | null
 ): number {
-  const aIsTrump = a.suit === trumpSuit;
-  const bIsTrump = b.suit === trumpSuit;
+  const aIsTrump = trumpSuit !== null && a.suit === trumpSuit;
+  const bIsTrump = trumpSuit !== null && b.suit === trumpSuit;
 
   // 1. Trump beats non-trump
   if (aIsTrump && !bIsTrump) return 1;
@@ -27,12 +31,6 @@ export function compareCardsInTrick(
   if (aIsLed && !bIsLed) return 1;
   if (!aIsLed && bIsLed) return -1;
 
-  // Both are led suit - compare ranks
-  if (aIsLed && bIsLed) {
-    return RANK_ORDER[a.rank] - RANK_ORDER[b.rank];
-  }
-
-  // Neither is trump nor led suit - rank doesn't matter, neither can win against led suit,
-  // but to be deterministic, return rank difference
+  // Both led suit, or both discards (neither can win): compare ranks for determinism
   return RANK_ORDER[a.rank] - RANK_ORDER[b.rank];
 }

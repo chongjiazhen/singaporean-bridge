@@ -2,13 +2,13 @@
 
 import type {
   GameState, PlayerIndex, Card, Bid, Trick, Partnership,
-  Suit, GameRules, SideKnowledge
+  Strain, GameRules, SideKnowledge
 } from './types';
 import {
   createDeck, shuffleDeck, dealCards, sortHand,
-  isHigherBid, isValidTrickTarget, cardsEqual,
+  isHigherBid, isValidLevel, cardsEqual, contractFor, bidToString,
   findCardInHand, removeCardFromHand,
-  PLAYER_NAMES, SUIT_SYMBOLS, PLAYERS, DEFAULT_RULES
+  PLAYER_NAMES, PLAYERS, DEFAULT_RULES, MIN_LEVEL, MAX_LEVEL
 } from './types';
 import { compareCardsInTrick } from './trickEvaluator';
 
@@ -60,13 +60,13 @@ export function startAuction(state: GameState): GameState {
   };
 }
 
-export function makeBid(state: GameState, player: PlayerIndex, tricks: number, suit: Suit): GameState {
+export function makeBid(state: GameState, player: PlayerIndex, level: number, strain: Strain): GameState {
   if (state.phase !== 'AUCTION') throw new Error('Not in auction phase');
   if (state.currentPlayer !== player) throw new Error('Not your turn to bid');
   if (!state.auction.activePlayers.has(player)) throw new Error('Player has passed');
-  if (!isValidTrickTarget(tricks)) throw new Error('Bid must be between 1 and 13 tricks');
+  if (!isValidLevel(level)) throw new Error(`Bid level must be between ${MIN_LEVEL} and ${MAX_LEVEL}`);
 
-  const bid: Bid = { player, tricks, suit };
+  const bid: Bid = { player, level, strain };
   if (!isHigherBid(state.auction.currentBid, bid)) throw new Error('Bid must be higher than current bid');
 
   return {
@@ -112,10 +112,7 @@ export function pass(state: GameState, player: PlayerIndex): GameState {
       phase: 'PARTNER_CALL',
       auction: { ...updatedAuction, declarer },
       currentPlayer: declarer,
-      contract: {
-        tricksRequired: finalBid.tricks,
-        trumpSuit: finalBid.suit,
-      },
+      contract: contractFor(finalBid),
     };
   } else {
     const nextPlayer = getNextActivePlayer({ ...state, auction: updatedAuction }, player);
@@ -171,7 +168,8 @@ export function callPartner(state: GameState, declarer: PlayerIndex, calledCard:
     defenders,
   };
 
-  const firstLeader = toPlayerIndex((declarer + 1) % 4); // Declarer's left
+  // Suit contract: declarer's left leads. No trump: declarer leads.
+  const firstLeader = getFirstLeader(state.contract!.strain, declarer);
 
   const initialTrick: Trick = {
     cards: [],
@@ -257,7 +255,7 @@ export function playCard(state: GameState, player: PlayerIndex, card: Card): Gam
 
     if (completedTricks.length === 13) {
       // Hand complete
-      const contractMade = tricksWonByDeclarer >= state.contract!.tricksRequired;
+      const contractMade = meetsContract(tricksWonByDeclarer, state.contract!.tricksRequired);
       nextPhase = 'HAND_RESULT';
       nextResult = { tricksWonByDeclarer, contractMade };
       nextCurrentPlayer = null;
@@ -296,7 +294,15 @@ export function countTricksWon(completed: Trick[], partnerships: Partnership): n
 
 export function isContractMade(state: GameState): boolean | null {
   if (!state.partnerships || !state.contract || state.tricks.completed.length < 13) return null;
-  return countTricksWon(state.tricks.completed, state.partnerships) >= state.contract.tricksRequired;
+  return meetsContract(countTricksWon(state.tricks.completed, state.partnerships), state.contract.tricksRequired);
+}
+
+export function meetsContract(tricksWon: number, tricksRequired: number): boolean {
+  return tricksWon >= tricksRequired;
+}
+
+export function getFirstLeader(strain: Strain, declarer: PlayerIndex): PlayerIndex {
+  return strain === 'NoTrump' ? declarer : toPlayerIndex((declarer + 1) % 4);
 }
 
 export function startNextHand(state: GameState): GameState {
@@ -374,7 +380,7 @@ export function getGameStatusText(state: GameState): string {
       return 'Dealing cards...';
     case 'AUCTION':
       if (state.auction.currentBid) {
-        return `${PLAYER_NAMES[currentPlayer ?? 0]} to bid. Current: ${state.auction.currentBid.tricks} ${SUIT_SYMBOLS[state.auction.currentBid.suit]}`;
+        return `${PLAYER_NAMES[currentPlayer ?? 0]} to bid. Current: ${bidToString(state.auction.currentBid)}`;
       }
       return `${PLAYER_NAMES[currentPlayer ?? 0]} to open the bidding`;
     case 'PARTNER_CALL':

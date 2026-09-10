@@ -61,11 +61,13 @@ Suits:
 - Clubs
 - Diamonds
 
-For bidding purposes, suit order is:
+For bidding purposes, strain order is:
 
-"Spades > Hearts > Clubs > Diamonds"
+"NoTrump > Spades > Hearts > Clubs > Diamonds"
 
-This suit ordering is used only for comparing bids.
+The suits follow poker order, NOT Contract Bridge order (which puts Diamonds above Clubs). No-trump ranks above every suit, as in Contract Bridge.
+
+This ordering is used only for comparing bids.
 
 No Jokers.
 
@@ -94,27 +96,29 @@ The entire deck is dealt before bidding begins.
 
 A bid consists of:
 
-"<trick target> <trump suit>"
+"<level> <strain>"
+
+where strain is a trump suit or NoTrump.
 
 Examples:
 
-- "5 Diamonds"
-- "5 Hearts"
-- "6 Hearts"
-- "6 Spades"
-- "7 Spades"
+- "1♦"
+- "1♥"
+- "2♥"
+- "2NT"
+- "3♠"
 
-The number represents the minimum number of tricks the eventual partnership must win.
+The level uses Contract Bridge's "book of six": the partnership must win level + 6 tricks.
 
 Example:
 
-"7 Hearts"
+"1♥"
 
 means:
 
 «The declarer's partnership must win at least 7 of the 13 tricks, with Hearts as trump.»
 
-It does NOT mean "7 tricks above six" as in Contract Bridge.
+"2NT" means at least 8 tricks with no trump suit.
 
 ---
 
@@ -122,15 +126,13 @@ It does NOT mean "7 tricks above six" as in Contract Bridge.
 
 Minimum bid:
 
-"1"
+"1" (7 tricks)
 
 Maximum bid:
 
-"13"
+"7" (all 13 tricks)
 
 However, the first player is expected to make an opening bid; see passing rules below.
-
-A bid at target 13 means the partnership must win all 13 tricks.
 
 ---
 
@@ -138,26 +140,28 @@ A bid at target 13 means the partnership must win all 13 tricks.
 
 A bid is higher if:
 
-1. Its trick target is higher, OR
-2. Its trick target is equal and its suit is higher according to:
+1. Its level is higher, OR
+2. Its level is equal and its strain is higher according to:
 
-"Spades > Hearts > Clubs > Diamonds"
+"NoTrump > Spades > Hearts > Clubs > Diamonds"
 
 Therefore:
 
-"5 Hearts < 5 Spades"
+"1♥ < 1♠"
 
-"5 Clubs < 5 Hearts"
+"1♣ < 1♥"
 
-"5 Spades < 6 Diamonds"
+"1♠ < 1NT"
 
-"6 Diamonds < 6 Clubs"
+"1NT < 2♦"
+
+"2♦ < 2♣"
 
 The auction is therefore lexicographically ordered by:
 
-"trick target → suit rank"
+"level → strain rank"
 
-Do NOT use Contract Bridge's suit ordering.
+Do NOT use Contract Bridge's suit ordering (Clubs rank above Diamonds here).
 
 ---
 
@@ -189,11 +193,11 @@ The highest remaining bid determines:
 
 Example:
 
-South: "5 Hearts"
-West: "5 Spades"
-North: "6 Clubs"
+South: "1♥"
+West: "1♠"
+North: "2♣"
 East: pass
-South: "6 Hearts"
+South: "2♥"
 West: pass
 North: pass
 
@@ -201,9 +205,9 @@ South wins.
 
 Final contract:
 
-"6 Hearts"
+"2♥"
 
-South is declarer and must win at least 6 tricks.
+South is declarer and South's partnership must win at least 8 tricks.
 
 ---
 
@@ -221,7 +225,7 @@ Rules:
 
 Example:
 
-South wins the auction with "7 Hearts".
+South wins the auction with "1♥".
 
 South does not hold the Ace of Hearts.
 
@@ -237,22 +241,26 @@ The remaining two players become the opposing partnership.
 
 7. Partner Revelation
 
-Canonical implementation for this project
+Default for this project: hidden partner
 
-The partner's identity is publicly revealed immediately after the card is called.
+After the card is called, only the holder of the called card knows they are the partner.
 
-The UI should display something equivalent to:
+- The declarer knows only that someone holds the card.
+- Each defender knows only that the declarer is an opponent.
+- The partnership becomes public the moment the called card is played to a trick.
+
+Before that, the UI should display something equivalent to:
+
+«South called A♥. Holder hidden.»
+
+Option: open partner
+
+A "Hidden partner" toggle turns this off. The partner's identity is then revealed immediately after the call:
 
 «South called A♥.
 East holds A♥ and is South's partner.»
 
-This is the simplest version for teaching and is the remembered version of the game.
-
-Optional future variant
-
-The code architecture should make it possible to support a "hidden partner" variant later, where the called-card holder knows they are partner but the other players do not.
-
-This is NOT required for the initial implementation.
+Changing the toggle takes effect immediately during the auction, otherwise from the next deal.
 
 ---
 
@@ -290,7 +298,9 @@ The declarer is allowed to call a low card, off-suit card, etc.
 
 After the partner has been determined, normal trick play begins.
 
-The player to the declarer's left leads the first trick.
+In a suit contract, the player to the declarer's left leads the first trick.
+
+In a no-trump contract, the declarer makes the opening lead.
 
 Seating example:
 
@@ -298,11 +308,7 @@ South = declarer
 
 West = declarer's left
 
-Therefore West leads.
-
-This is the default rule for this implementation.
-
-Do not have declarer automatically lead.
+Therefore West leads in a suit contract, and South leads in a no-trump contract.
 
 ---
 
@@ -315,7 +321,7 @@ For each trick:
 1. The leader plays any legal card.
 2. Each subsequent player must follow the led suit if they have a card of that suit.
 3. If they do not have the led suit, they may play any card, including trump.
-4. The highest trump wins if any trump was played.
+4. The highest trump wins if any trump was played. In no trump there are no trumps.
 5. Otherwise, the highest card of the led suit wins.
 6. The winner of the trick leads the next trick.
 
@@ -349,7 +355,7 @@ Example:
 
 Contract:
 
-"7 Hearts"
+"1♥" (7 tricks)
 
 Declarer's partnership wins:
 
@@ -401,16 +407,17 @@ The game may track hand wins across multiple hands if a match mode is implemente
 
 14. No-Trump
 
-No-trump is NOT valid.
+No-trump is valid and ranks above Spades at every level.
 
-Every contract must specify one of:
+Every contract specifies one of:
 
+- NoTrump
 - Spades
 - Hearts
 - Clubs
 - Diamonds
 
-Do not implement NT bidding.
+In a no-trump contract there is no trump suit, and the declarer makes the opening lead (section 9).
 
 ---
 
@@ -660,35 +667,35 @@ The tutorial should include a worked example.
 
 Example:
 
-«South bids 5♥.
+«South bids 1♥.
 
-West bids 5♠.
+West bids 1♠.
 
-North bids 6♣.
+North bids 2♣.
 
 East passes.
 
-South bids 6♥.
+South bids 2♥.
 
 West passes.
 
 North passes.
 
-South wins the auction with 6♥.
+South wins the auction with 2♥.
 
 South does not hold K♥, so South calls K♥.
 
 North holds K♥.
 
-North therefore becomes South's partner.
+North therefore becomes South's partner. With hidden partner on, only North knows this until K♥ is played.
 
 West and East are the defenders.
 
-West leads the first trick.
+West leads the first trick. Had the contract been 2NT, South would lead.
 
 Hearts are trump.
 
-South + North must win at least 6 tricks.»
+South + North must win at least 8 tricks.»
 
 The tutorial should explicitly emphasize:
 
@@ -749,9 +756,13 @@ After winning:
 
 «You won the auction. Now choose one card you don't hold. Whoever has it will become your partner.»
 
-After calling:
+After calling, with hidden partner off:
 
 «Your partner is North.»
+
+With hidden partner on, the declarer instead sees that the holder is hidden, and the holder sees:
+
+«You hold the called card: you are South's secret partner.»
 
 Then:
 
@@ -769,16 +780,16 @@ Not implemented:
 
 - Fixed partnerships
 - Dummy
-- No-trump
 - Double
 - Redouble
 - Vulnerability
 - Contract Bridge scoring
-- Contract Bridge's 1-level / 2-level terminology
-- Contract Bridge suit ordering
-- Declarer automatically leading
+- Contract Bridge suit ordering (Diamonds above Clubs)
+- Declarer leading a suit contract
 - Global Bridge match-point scoring
 - Rubber Bridge scoring
+
+Deliberately adopted from Contract Bridge: the book-of-six bid levels, no-trump contracts ranking above Spades, and declarer's opening lead in no trump.
 
 ---
 
@@ -786,7 +797,7 @@ Not implemented:
 
 Design the engine so these can eventually be toggled without rewriting the core game:
 
-Hidden Partner
+Hidden Partner (implemented, on by default; see section 7)
 
 After the declarer calls a card, only the card holder knows that they are partner.
 
@@ -798,11 +809,7 @@ Allow dealer-left or declarer lead as configurable variants.
 
 Alternate Bid Scale
 
-Support variants where:
-
-"4♥ = 10 tricks"
-
-rather than:
+The book-of-six scale ("4♥ = 10 tricks") is now the default. A variant could restore the direct scale:
 
 "4♥ = 4 tricks"
 
@@ -857,7 +864,8 @@ Auction tests
 
 - legal opening bids
 - illegal first pass
-- same-level suit ordering
+- same-level strain ordering, NT highest
+- level + 6 tricks required
 - higher-level bid
 - illegal lower bid
 - passed player cannot bid
@@ -868,6 +876,8 @@ Partner tests
 - cannot call card in own hand
 - correct partner identified
 - correct defenders identified
+- declarer's left leads a suit contract, declarer leads no trump
+- hidden partner: who knows what before and after the called card is played
 
 Trick tests
 
@@ -883,7 +893,7 @@ Contract tests
 - exactly target → success
 - above target → success
 - below target → failure
-- 13 target → only 13 tricks succeeds
+- level 7 (13 tricks) → only 13 tricks succeeds
 
 ---
 

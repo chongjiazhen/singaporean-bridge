@@ -1,15 +1,22 @@
 /** Core types for Singaporean Floating Bridge */
 
 export type Suit = 'Spades' | 'Hearts' | 'Clubs' | 'Diamonds';
+/** What a bid names: a trump suit, or no trump. */
+export type Strain = Suit | 'NoTrump';
 export type Rank = 'A' | 'K' | 'Q' | 'J' | '10' | '9' | '8' | '7' | '6' | '5' | '4' | '3' | '2';
 export type PlayerIndex = 0 | 1 | 2 | 3; // 0=South, 1=West, 2=North, 3=East
 export type Phase = 'DEALING' | 'AUCTION' | 'PARTNER_CALL' | 'TRICK_PLAY' | 'HAND_RESULT';
 
 export const SUITS: readonly Suit[] = ['Spades', 'Hearts', 'Clubs', 'Diamonds'];
+/** Strains from highest to lowest bidding rank. */
+export const STRAINS: readonly Strain[] = ['NoTrump', 'Spades', 'Hearts', 'Clubs', 'Diamonds'];
 export const RANKS: readonly Rank[] = ['A', 'K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2'];
 export const PLAYERS: readonly PlayerIndex[] = [0, 1, 2, 3];
-export const MIN_TRICKS = 1;
-export const MAX_TRICKS = 13;
+
+/** Bids use a book of six: level 1 commits the side to 7 tricks, level 7 to all 13. */
+export const BOOK = 6;
+export const MIN_LEVEL = 1;
+export const MAX_LEVEL = 7;
 
 export const PLAYER_NAMES: Record<PlayerIndex, string> = {
   0: 'South',
@@ -18,11 +25,13 @@ export const PLAYER_NAMES: Record<PlayerIndex, string> = {
   3: 'East',
 };
 
-export const SUIT_ORDER: Record<Suit, number> = {
+/** Bidding rank. Suits follow poker order (Spades > Hearts > Clubs > Diamonds); no trump is highest. */
+export const STRAIN_ORDER: Record<Strain, number> = {
   Diamonds: 0,
   Clubs: 1,
   Hearts: 2,
   Spades: 3,
+  NoTrump: 4,
 };
 
 export const SUIT_SYMBOLS: Record<Suit, string> = {
@@ -31,6 +40,8 @@ export const SUIT_SYMBOLS: Record<Suit, string> = {
   Clubs: '♣',
   Diamonds: '♦',
 };
+
+export const STRAIN_SYMBOLS: Record<Strain, string> = { ...SUIT_SYMBOLS, NoTrump: 'NT' };
 
 export const SUIT_COLORS: Record<Suit, 'red' | 'black'> = {
   Spades: 'black',
@@ -51,8 +62,17 @@ export interface Card {
 
 export interface Bid {
   player: PlayerIndex;
-  tricks: number; // 1-13
-  suit: Suit;
+  /** 1-7. Tricks required = level + BOOK. */
+  level: number;
+  strain: Strain;
+}
+
+export interface Contract {
+  level: number;
+  strain: Strain;
+  tricksRequired: number;
+  /** null in a no-trump contract. */
+  trumpSuit: Suit | null;
 }
 
 export interface Trick {
@@ -60,7 +80,7 @@ export interface Trick {
   leader: PlayerIndex;
   winner: PlayerIndex | null;
   ledSuit: Suit | null;
-  trumpSuit: Suit;
+  trumpSuit: Suit | null;
 }
 
 export interface Partnership {
@@ -78,7 +98,7 @@ export interface GameRules {
   hiddenPartner: boolean;
 }
 
-export const DEFAULT_RULES: GameRules = { hiddenPartner: false };
+export const DEFAULT_RULES: GameRules = { hiddenPartner: true };
 
 /** What one seat knows about another seat's side. */
 export type SideKnowledge = 'self' | 'ally' | 'opponent' | 'unknown';
@@ -103,10 +123,7 @@ export interface GameState {
     passes: Set<PlayerIndex>;
     declarer: PlayerIndex | null;
   };
-  contract: {
-    tricksRequired: number;
-    trumpSuit: Suit;
-  } | null;
+  contract: Contract | null;
   calledCard: Card | null;
   partnerships: Partnership | null;
   tricks: {
@@ -128,13 +145,34 @@ export function cardToString(card: Card): string {
   return `${card.rank}${SUIT_SYMBOLS[card.suit]}`;
 }
 
-export function isValidTrickTarget(tricks: number): boolean {
-  return Number.isInteger(tricks) && tricks >= MIN_TRICKS && tricks <= MAX_TRICKS;
+export function bidToString(bid: { level: number; strain: Strain }): string {
+  return `${bid.level}${STRAIN_SYMBOLS[bid.strain]}`;
+}
+
+export function isValidLevel(level: number): boolean {
+  return Number.isInteger(level) && level >= MIN_LEVEL && level <= MAX_LEVEL;
+}
+
+export function tricksForLevel(level: number): number {
+  return level + BOOK;
+}
+
+export function trumpOf(strain: Strain): Suit | null {
+  return strain === 'NoTrump' ? null : strain;
+}
+
+export function contractFor(bid: { level: number; strain: Strain }): Contract {
+  return {
+    level: bid.level,
+    strain: bid.strain,
+    tricksRequired: tricksForLevel(bid.level),
+    trumpSuit: trumpOf(bid.strain),
+  };
 }
 
 export function compareBids(a: Bid, b: Bid): number {
-  if (a.tricks !== b.tricks) return a.tricks - b.tricks;
-  return SUIT_ORDER[a.suit] - SUIT_ORDER[b.suit];
+  if (a.level !== b.level) return a.level - b.level;
+  return STRAIN_ORDER[a.strain] - STRAIN_ORDER[b.strain];
 }
 
 export function isHigherBid(current: Bid | null, candidate: Bid): boolean {
@@ -184,9 +222,9 @@ export function sortHand(hand: Card[]): Card[] {
  */
 export function getLegalBids(currentBid: Bid | null, player: PlayerIndex): Bid[] {
   const bids: Bid[] = [];
-  for (let tricks = MIN_TRICKS; tricks <= MAX_TRICKS; tricks++) {
-    for (const suit of SUITS) {
-      const bid = { player, tricks, suit };
+  for (let level = MIN_LEVEL; level <= MAX_LEVEL; level++) {
+    for (const strain of STRAINS) {
+      const bid = { player, level, strain };
       if (isHigherBid(currentBid, bid)) bids.push(bid);
     }
   }

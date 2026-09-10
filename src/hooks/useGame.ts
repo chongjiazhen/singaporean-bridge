@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import type { GameState, Card, Suit, Bid, GameRules } from '../engine/types';
+import type { GameState, Card, Strain, Bid, GameRules } from '../engine/types';
 import {
   createInitialState, startAuction, makeBid, pass,
   callPartner, playCard, startNextHand, getLegalPlays,
@@ -40,7 +40,7 @@ function advanceOneAi(current: GameState): GameState {
   const decision = makeAiDecision(current, player);
 
   if (decision.action === 'bid' && decision.bid) {
-    return makeBid(current, player, decision.bid.tricks, decision.bid.suit);
+    return makeBid(current, player, decision.bid.level, decision.bid.strain);
   }
   if (decision.action === 'pass') return pass(current, player);
   if (decision.action === 'call' && decision.card) return callPartner(current, player, decision.card);
@@ -99,9 +99,9 @@ export function useGame() {
     setState(prev => startAuction(setRules(startNextHand(prev), rules)));
   }, [rules]);
 
-  const handleHumanBid = useCallback((tricks: number, suit: Suit) => {
-    setState(prev => humanLegalBids(prev).some(b => b.tricks === tricks && b.suit === suit)
-      ? makeBid(prev, 0, tricks, suit)
+  const handleHumanBid = useCallback((level: number, strain: Strain) => {
+    setState(prev => humanLegalBids(prev).some(b => b.level === level && b.strain === strain)
+      ? makeBid(prev, 0, level, strain)
       : prev);
   }, []);
 

@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import { CardComponent } from './Card';
-import type { GameState, Card, Suit, PlayerIndex, Bid, GameRules, Trick } from '../engine/types';
-import { PLAYER_NAMES, SUIT_SYMBOLS, SUIT_COLORS, SUITS, RANKS, PLAYERS, cardsEqual } from '../engine/types';
+import type { GameState, Card, Suit, Strain, PlayerIndex, Bid, GameRules, Trick, Contract } from '../engine/types';
+import {
+  PLAYER_NAMES, SUIT_SYMBOLS, SUIT_COLORS, STRAIN_SYMBOLS, STRAINS, SUITS, RANKS, PLAYERS,
+  MIN_LEVEL, MAX_LEVEL, tricksForLevel, cardsEqual,
+} from '../engine/types';
 import { countTricksWon, getSideKnowledge, isPartnershipPublic } from '../engine/gameEngine';
 import { X, HelpCircle } from 'lucide-react';
 
@@ -16,7 +19,7 @@ interface GameTableProps {
   canPass: boolean;
   statusText: string;
   isHumanTurn: boolean;
-  onBid: (tricks: number, suit: Suit) => void;
+  onBid: (level: number, strain: Strain) => void;
   onPass: () => void;
   onCallCard: (card: Card) => void;
   onPlayCard: (card: Card) => void;
@@ -28,37 +31,48 @@ interface GameTableProps {
 }
 
 const cardKey = (c: Card) => `${c.rank}-${c.suit}`;
-const suitClass = (suit: Suit) => (SUIT_COLORS[suit] === 'red' ? 'text-red-600' : 'text-gray-900 dark:text-gray-100');
+const strainClass = (strain: Strain) => {
+  if (strain === 'NoTrump') return 'text-blue-700 dark:text-blue-300';
+  return SUIT_COLORS[strain] === 'red' ? 'text-red-600' : 'text-gray-900 dark:text-gray-100';
+};
 
 function CardText({ card }: { card: Card }) {
-  return <strong className={suitClass(card.suit)}>{card.rank}{SUIT_SYMBOLS[card.suit]}</strong>;
+  return <strong className={strainClass(card.suit)}>{card.rank}{SUIT_SYMBOLS[card.suit]}</strong>;
 }
 
-function BidText({ bid }: { bid: Bid }) {
-  return <strong className={suitClass(bid.suit)}>{bid.tricks}{SUIT_SYMBOLS[bid.suit]}</strong>;
+function BidText({ bid }: { bid: { level: number; strain: Strain } }) {
+  return <strong className={strainClass(bid.strain)}>{bid.level}{STRAIN_SYMBOLS[bid.strain]}</strong>;
 }
 
-function SuitPicker({ selected, enabled, onSelect }: {
-  selected: Suit;
-  enabled: (suit: Suit) => boolean;
-  onSelect: (suit: Suit) => void;
+/** "Hearts trump, 8 tricks" or "no trump, 7 tricks, declarer leads". */
+function contractTerms(contract: Contract): string {
+  const trump = contract.trumpSuit ? `${contract.trumpSuit} trump` : 'no trump';
+  const lead = contract.trumpSuit ? '' : ', declarer leads';
+  return `${trump}, ${contract.tricksRequired} tricks needed${lead}`;
+}
+
+function StrainPicker<T extends Strain>({ options, selected, enabled, onSelect }: {
+  options: readonly T[];
+  selected: T;
+  enabled: (strain: T) => boolean;
+  onSelect: (strain: T) => void;
 }) {
   return (
-    <div className="grid grid-cols-4 gap-2 mb-3">
-      {SUITS.map(suit => (
+    <div className={`grid ${options.length === 5 ? 'grid-cols-5' : 'grid-cols-4'} gap-2 mb-3`}>
+      {options.map(strain => (
         <button
-          key={suit}
+          key={strain}
           type="button"
-          onClick={() => onSelect(suit)}
-          disabled={!enabled(suit)}
+          onClick={() => onSelect(strain)}
+          disabled={!enabled(strain)}
           className={`flex flex-col items-center gap-1 py-2 rounded border transition-colors
             disabled:opacity-30 disabled:cursor-not-allowed
-            ${selected === suit
+            ${selected === strain
               ? 'border-blue-500 bg-blue-100 dark:bg-blue-900/40 ring-2 ring-blue-400'
               : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
         >
-          <span className={`font-bold text-xl ${suitClass(suit)}`}>{SUIT_SYMBOLS[suit]}</span>
-          <span className="text-xs text-gray-500 dark:text-gray-400">{suit}</span>
+          <span className={`font-bold text-xl ${strainClass(strain)}`}>{STRAIN_SYMBOLS[strain]}</span>
+          <span className="text-xs text-gray-500 dark:text-gray-400">{strain === 'NoTrump' ? 'No trump' : strain}</span>
         </button>
       ))}
     </div>
@@ -140,11 +154,12 @@ function BiddingPanel({ state, legalBids, canPass, onBid, onPass }: {
   state: GameState;
   legalBids: Bid[];
   canPass: boolean;
-  onBid: (tricks: number, suit: Suit) => void;
+  onBid: (level: number, strain: Strain) => void;
   onPass: () => void;
 }) {
-  const [suit, setSuit] = useState<Suit>('Spades');
+  const [strain, setStrain] = useState<Strain>('Spades');
   const currentBid = state.auction.currentBid;
+  const levels = Array.from({ length: MAX_LEVEL - MIN_LEVEL + 1 }, (_, i) => i + MIN_LEVEL);
 
   return (
     <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
@@ -155,29 +170,32 @@ function BiddingPanel({ state, legalBids, canPass, onBid, onPass }: {
       {currentBid && (
         <div className="mb-3 p-2 bg-blue-100 dark:bg-blue-800/30 rounded text-sm">
           Current bid: <BidText bid={currentBid} /> by {PLAYER_NAMES[currentBid.player]}
+          {' '}({tricksForLevel(currentBid.level)} tricks)
         </div>
       )}
 
-      <SuitPicker selected={suit} enabled={s => legalBids.some(b => b.suit === s)} onSelect={setSuit} />
+      <StrainPicker options={STRAINS} selected={strain} enabled={s => legalBids.some(b => b.strain === s)} onSelect={setStrain} />
 
-      <div className="flex flex-wrap gap-2 justify-center mb-3">
-        {Array.from({ length: 13 }, (_, i) => i + 1).map(tricks => (
+      <div className="grid grid-cols-7 gap-2 mb-3">
+        {levels.map(level => (
           <button
-            key={tricks}
-            onClick={() => onBid(tricks, suit)}
-            disabled={!legalBids.some(b => b.tricks === tricks && b.suit === suit)}
-            className="px-2 py-1 text-xs font-medium rounded border transition-colors
+            key={level}
+            onClick={() => onBid(level, strain)}
+            disabled={!legalBids.some(b => b.level === level && b.strain === strain)}
+            className="flex flex-col items-center px-1 py-1 text-xs font-medium rounded border transition-colors
               disabled:opacity-30 disabled:cursor-not-allowed
               bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600
               hover:bg-blue-100 dark:hover:bg-blue-900/30
               text-gray-800 dark:text-gray-200"
           >
-            {tricks} {SUIT_SYMBOLS[suit]}
+            <span className="text-sm">{level}{STRAIN_SYMBOLS[strain]}</span>
+            <span className="text-[10px] text-gray-500 dark:text-gray-400">{tricksForLevel(level)} tricks</span>
           </button>
         ))}
       </div>
       <p className="text-xs text-blue-700 dark:text-blue-300 mb-3 text-center">
-        A bid is the minimum number of tricks your side must win, with that suit as trump.
+        Level + 6 is the tricks your side must win: 1♠ needs 7, 7NT needs all 13.
+        At the same level NT &gt; ♠ &gt; ♥ &gt; ♣ &gt; ♦.
       </p>
 
       <button
@@ -191,14 +209,14 @@ function BiddingPanel({ state, legalBids, canPass, onBid, onPass }: {
   );
 }
 
-function PartnerCallPanel({ contract, availableCallCards, onCallCard }: {
-  contract: NonNullable<GameState['contract']>;
+function PartnerCallPanel({ contract, hiddenPartner, availableCallCards, onCallCard }: {
+  contract: Contract;
+  hiddenPartner: boolean;
   availableCallCards: Card[];
   onCallCard: (card: Card) => void;
 }) {
   // Mounted only during the human's PARTNER_CALL, so this default is the real trump suit.
-  const [suit, setSuit] = useState<Suit>(contract.trumpSuit);
-  const trump = contract.trumpSuit;
+  const [suit, setSuit] = useState<Suit>(contract.trumpSuit ?? 'Spades');
 
   return (
     <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-4 border border-yellow-200 dark:border-yellow-800">
@@ -206,11 +224,12 @@ function PartnerCallPanel({ contract, availableCallCards, onCallCard }: {
         You won the auction. Now choose one card you don't hold.
       </h3>
       <p className="text-sm text-yellow-700 dark:text-yellow-300 mb-4">
-        Whoever holds that card becomes your partner. Contract:{' '}
-        <BidText bid={{ player: 0, tricks: contract.tricksRequired, suit: trump }} /> ({trump} are trump).
+        Whoever holds that card becomes your partner.
+        {hiddenPartner && ' Only they will know until the card is played.'}
+        {' '}Contract: <BidText bid={contract} /> ({contractTerms(contract)}).
       </p>
 
-      <SuitPicker selected={suit} enabled={s => availableCallCards.some(c => c.suit === s)} onSelect={setSuit} />
+      <StrainPicker options={SUITS} selected={suit} enabled={s => availableCallCards.some(c => c.suit === s)} onSelect={setSuit} />
 
       <div className="flex flex-wrap gap-2 justify-center">
         {RANKS.map(rank => (
@@ -230,7 +249,8 @@ function PartnerCallPanel({ contract, availableCallCards, onCallCard }: {
       </div>
 
       <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-3 text-center">
-        Cards in your own hand are greyed out. A common choice is the highest trump you don't hold.
+        Cards in your own hand are greyed out. A common choice is
+        {contract.trumpSuit ? ' the highest trump you don\'t hold.' : ' an ace you don\'t hold.'}
       </p>
     </div>
   );
@@ -304,15 +324,14 @@ function TrickArea({ state }: { state: GameState }) {
   );
 }
 
-/** Contract, called card and the human's side. Spells out the relationships, never leaves them to inference. */
+/** Contract, called card and the human's side. Spells out only what South may know. */
 function ContractBadge({ state }: { state: GameState }) {
   if (!state.contract || state.auction.declarer === null) return null;
-  const { trumpSuit, tricksRequired } = state.contract;
+  const contract = state.contract;
   const declarer = state.auction.declarer;
   const p = state.partnerships;
   const called = state.calledCard;
 
-  // Only say what the human seat legitimately knows (hidden-partner rules).
   const known = getSideKnowledge(state, 0);
   const holderKnown = p !== null && (isPartnershipPublic(state) || p.partner === 0);
 
@@ -321,7 +340,9 @@ function ContractBadge({ state }: { state: GameState }) {
     if (p.declarer === 0) {
       side = holderKnown ? `Your partner is ${PLAYER_NAMES[p.partner]}.` : 'Your partner is whoever holds the called card. Not yet known.';
     } else if (p.partner === 0) {
-      side = `You hold the called card: you are ${PLAYER_NAMES[p.declarer]}'s secret partner.`;
+      side = isPartnershipPublic(state)
+        ? `You are ${PLAYER_NAMES[p.declarer]}'s partner.`
+        : `You hold the called card: you are ${PLAYER_NAMES[p.declarer]}'s secret partner.`;
     } else {
       const other = p.defenders.find(d => d !== 0)!;
       side = known[other] === 'ally'
@@ -334,8 +355,7 @@ function ContractBadge({ state }: { state: GameState }) {
   return (
     <div className="flex flex-wrap items-center gap-2 text-sm">
       <span className={pill}>
-        <BidText bid={{ player: declarer, tricks: tricksRequired, suit: trumpSuit }} /> by {PLAYER_NAMES[declarer]}
-        {' '}({trumpSuit} trump, {tricksRequired} tricks needed)
+        <BidText bid={contract} /> by {PLAYER_NAMES[declarer]} ({contractTerms(contract)})
       </span>
       {called && p && (
         <span className={pill}>
@@ -414,7 +434,7 @@ function ResultPanel({ state, onNewHand }: { state: GameState; onNewHand: () => 
         </h2>
 
         <div className="space-y-1 mb-4">
-          <p>Contract: <BidText bid={{ player: declarer, tricks: state.contract.tricksRequired, suit: state.contract.trumpSuit }} /> by <strong>{PLAYER_NAMES[declarer]}</strong></p>
+          <p>Contract: <BidText bid={state.contract} /> by <strong>{PLAYER_NAMES[declarer]}</strong> ({contractTerms(state.contract)})</p>
           <p>Partner: <strong>{PLAYER_NAMES[partner]}</strong>{state.calledCard && <> (held <CardText card={state.calledCard} />)</>}</p>
           <p>Tricks won: <strong>{state.result.tricksWonByDeclarer} / {state.contract.tricksRequired}</strong></p>
         </div>
@@ -435,11 +455,11 @@ function ResultPanel({ state, onNewHand }: { state: GameState; onNewHand: () => 
 function TutorialOverlay({ onClose }: { onClose: () => void }) {
   const steps = [
     'Deal: everyone receives 13 private cards.',
-    "Bid: players compete to name how many tricks their eventual partnership will win, and in which trump suit. Higher number wins; on a tie, Spades > Hearts > Clubs > Diamonds. You don't know who your partner is yet!",
-    'The winning bid sets the trump suit. The first bidder may not pass; the auction ends when only one bidder is left.',
-    "Call a card: the declarer names a card they don't hold. Whoever has it becomes their partner. This game reveals the partner at once.",
-    "Play: the player to declarer's left leads. Follow suit if you can. Trumps beat everything else; otherwise the highest card of the led suit wins, and the winner leads next.",
-    'Check the contract: if the declarer and partner win at least the bid number of tricks, they succeed.',
+    "Bid: a bid is a level from 1 to 7 plus a strain (a trump suit, or no trump). Your side must win level + 6 tricks, so 1♠ needs 7 and 7NT needs all 13. A higher level wins; at the same level NT > ♠ > ♥ > ♣ > ♦. You don't know who your partner is yet!",
+    'The first bidder may not pass. The auction ends when only one bidder is left, and their bid becomes the contract.',
+    "Call a card: the declarer names a card they don't hold. Whoever has it becomes their partner. With hidden partner on (the default), only that player knows until the card is played.",
+    "Play: in a suit contract the player to declarer's left leads; in no trump the declarer leads. Follow suit if you can. Trumps beat everything else; otherwise the highest card of the led suit wins, and the winner leads next.",
+    'Check the contract: if the declarer and partner win at least level + 6 tricks, they succeed.',
   ];
 
   return (
@@ -465,14 +485,14 @@ function TutorialOverlay({ onClose }: { onClose: () => void }) {
 
         <div className="mt-5 p-4 rounded-lg bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 text-sm">
           <div className="font-semibold mb-2">Worked example</div>
-          <p>South bids 5♥. West bids 5♠. North bids 6♣. East passes. South bids 6♥. West passes. North passes.</p>
-          <p className="mt-1">South wins the auction with 6♥. South does not hold K♥, so South calls K♥. North holds K♥, so North becomes South's partner. West and East defend.</p>
-          <p className="mt-1">West leads the first trick. Hearts are trump. South + North must win at least 6 tricks.</p>
+          <p>South bids 1♥. West bids 1♠. North bids 2♣. East passes. South bids 2♥. West passes. North passes.</p>
+          <p className="mt-1">South wins the auction with 2♥: Hearts are trump and South's side needs 8 tricks. South does not hold K♥, so South calls K♥. North holds K♥, so North becomes South's partner. West and East defend.</p>
+          <p className="mt-1">West, on South's left, leads the first trick. With hidden partner on, only North knows the partnership until K♥ is played. Had South won with 2NT instead, South would lead.</p>
           <p className="mt-2 font-medium">Note: North was NOT South's partner during the auction. Partnerships only exist once a card is called.</p>
         </div>
 
         <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
-          This implements one common Singaporean ruleset. Local variants exist. It is not Contract Bridge: no fixed partners, no dummy, no no-trump, no doubling.
+          This implements one Singaporean ruleset. Local variants exist. Bidding uses Contract Bridge's book of six, but suits rank ♠ &gt; ♥ &gt; ♣ &gt; ♦ and there are no fixed partners, no dummy and no doubling.
         </p>
 
         <button
@@ -522,7 +542,7 @@ export function GameTable({
           </button>
           <label
             className="text-sm text-gray-600 dark:text-gray-300 flex items-center gap-1 cursor-pointer"
-            title="Variant: only the holder of the called card knows they are partner until that card is played."
+            title="Only the holder of the called card knows they are partner until that card is played."
           >
             <input
               type="checkbox"
@@ -568,7 +588,12 @@ export function GameTable({
             <BiddingPanel state={state} legalBids={legalBids} canPass={canPass} onBid={onBid} onPass={onPass} />
           )}
           {humanCalling && (
-            <PartnerCallPanel contract={state.contract!} availableCallCards={availableCallCards} onCallCard={onCallCard} />
+            <PartnerCallPanel
+              contract={state.contract!}
+              hiddenPartner={state.rules.hiddenPartner}
+              availableCallCards={availableCallCards}
+              onCallCard={onCallCard}
+            />
           )}
         </div>
       </div>

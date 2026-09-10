@@ -13,7 +13,7 @@ function playWholeHand(hiddenPartner: boolean): GameState {
   while (s.phase !== 'HAND_RESULT' && guard++ < 200) {
     const p = s.currentPlayer as PlayerIndex;
     const d = makeAiDecision(s, p);
-    if (d.action === 'bid') s = makeBid(s, p, d.bid!.tricks, d.bid!.suit);
+    if (d.action === 'bid') s = makeBid(s, p, d.bid!.level, d.bid!.strain);
     else if (d.action === 'pass') s = pass(s, p);
     else if (d.action === 'call') s = callPartner(s, p, d.card!);
     else s = playCard(s, p, d.card!);
@@ -71,7 +71,7 @@ describe('Hidden partner display', () => {
     while (s.phase !== 'TRICK_PLAY' && guard++ < 50) {
       const p = s.currentPlayer as PlayerIndex;
       const d = makeAiDecision(s, p);
-      if (d.action === 'bid') s = makeBid(s, p, d.bid!.tricks, d.bid!.suit);
+      if (d.action === 'bid') s = makeBid(s, p, d.bid!.level, d.bid!.strain);
       else if (d.action === 'pass') s = pass(s, p);
       else s = callPartner(s, p, d.card!);
     }
