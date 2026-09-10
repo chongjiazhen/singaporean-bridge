@@ -7,6 +7,7 @@ function App() {
     state,
     showTutorial,
     setShowTutorial,
+    handleNewHand,
     handleHumanBid,
     handleHumanPass,
     handleHumanCallCard,
@@ -34,6 +35,7 @@ function App() {
       onCallCard={handleHumanCallCard}
       onPlayCard={handleHumanPlayCard}
       onCloseTutorial={() => setShowTutorial(false)}
+      onNewHand={handleNewHand}
       showTutorial={showTutorial}
     />
   );

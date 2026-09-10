@@ -1,32 +1,24 @@
-# React + TypeScript + Vite
+# Singaporean Floating Bridge
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Browser game of Singaporean floating bridge (bid, call a partner card, play 13 tricks) against three AI players. React + TypeScript + Vite + Tailwind.
 
-Currently, two official plugins are available:
+Live: https://chongjiazhen.github.io/singaporean-bridge/
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Develop
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```sh
+npm ci
+npm run dev        # local dev server
+npx vitest run     # engine tests
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+## Deploy
+
+GitHub Pages serves the `docs/` folder on `main`. There is no CI step: build, commit, push.
+
+```sh
+npm run build      # tsc + vite build -> docs/
+git add docs
+git commit -m "deploy: <what changed>"
+git push
+```

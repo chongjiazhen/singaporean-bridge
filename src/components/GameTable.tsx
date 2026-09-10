@@ -1,7 +1,40 @@
+import { useState } from 'react';
 import { CardComponent } from './Card';
-import type { GameState, Card, Suit, Rank } from '../engine/types';
-import { PLAYER_NAMES, SUIT_SYMBOLS } from '../engine/types';
+import type { GameState, Card, Suit, Rank, PlayerIndex } from '../engine/types';
+import { PLAYER_NAMES, SUIT_SYMBOLS, SUIT_COLORS } from '../engine/types';
 import { X } from 'lucide-react';
+
+const SUITS: Suit[] = ['Spades', 'Hearts', 'Clubs', 'Diamonds'];
+const RANKS: Rank[] = ['A', 'K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2'];
+
+function SuitPicker({ selected, enabled, onSelect }: {
+  selected: Suit;
+  enabled: (suit: Suit) => boolean;
+  onSelect: (suit: Suit) => void;
+}) {
+  return (
+    <div className="grid grid-cols-4 gap-2 mb-3">
+      {SUITS.map(suit => (
+        <button
+          key={suit}
+          type="button"
+          onClick={() => onSelect(suit)}
+          disabled={!enabled(suit)}
+          className={`flex flex-col items-center gap-1 py-2 rounded border transition-colors
+            disabled:opacity-30 disabled:cursor-not-allowed
+            ${selected === suit
+              ? 'border-blue-500 bg-blue-100 dark:bg-blue-900/40 ring-2 ring-blue-400'
+              : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+        >
+          <span className={`font-bold text-xl ${SUIT_COLORS[suit] === 'red' ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'}`}>
+            {SUIT_SYMBOLS[suit]}
+          </span>
+          <span className="text-xs text-gray-500 dark:text-gray-400">{suit}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 interface GameTableProps {
   state: GameState;
@@ -16,6 +49,7 @@ interface GameTableProps {
   onCallCard: (card: Card) => void;
   onPlayCard: (card: Card) => void;
   onCloseTutorial: () => void;
+  onNewHand: () => void;
   showTutorial: boolean;
 }
 
@@ -56,10 +90,10 @@ function PlayerArea({ name, hand, isHuman, faceUp, position, selectedCards, onCa
   // West/East - vertical layout
   return (
     <div className={`flex flex-col items-center gap-2 ${position === 'west' ? 'mr-4' : 'ml-4'}`}>
-      <div className="text-sm font-medium text-gray-600 dark:text-gray-300 writing-mode-vertical-rl text-center h-24">
-        {name.split('').join(' ')}
+      <div className="text-sm font-medium text-gray-600 dark:text-gray-300 text-center">
+        {name}
       </div>
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col -space-y-10">
         {hand.map(card => (
           <CardComponent
             key={cardKey(card)}
@@ -82,14 +116,18 @@ function BiddingPanel({ state, legalBids, onBid, onPass, isHumanTurn }: {
   onPass: () => void;
   isHumanTurn: boolean;
 }) {
+  const [suit, setSuit] = useState<Suit>('Spades');
+
   if (!isHumanTurn || state.phase !== 'AUCTION') return null;
 
-  const suits: Suit[] = ['Spades', 'Hearts', 'Clubs', 'Diamonds'];
   const currentBid = state.auction.currentBid;
+  const mustOpen = state.auction.bids.length === 0;
 
   return (
     <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
-      <h3 className="font-semibold text-blue-800 dark:text-blue-200 mb-3">Your Turn to Bid</h3>
+      <h3 className="font-semibold text-blue-800 dark:text-blue-200 mb-3">
+        {mustOpen ? 'Your Turn to Open the Bidding' : 'Your Turn to Bid'}
+      </h3>
 
       {currentBid && (
         <div className="mb-3 p-2 bg-blue-100 dark:bg-blue-800/30 rounded text-sm">
@@ -97,38 +135,32 @@ function BiddingPanel({ state, legalBids, onBid, onPass, isHumanTurn }: {
         </div>
       )}
 
-      <div className="grid grid-cols-4 gap-2 mb-3">
-        {suits.map(suit => (
-          <div key={suit} className="flex flex-col items-center gap-1">
-            <span className="font-bold text-xl">{SUIT_SYMBOLS[suit]}</span>
-            <span className="text-xs text-gray-500">{suit}</span>
-          </div>
-        ))}
-      </div>
+      <SuitPicker
+        selected={suit}
+        enabled={s => legalBids.some(b => b.suit === s)}
+        onSelect={setSuit}
+      />
 
       <div className="flex flex-wrap gap-2 justify-center mb-3">
         {[1,2,3,4,5,6,7,8,9,10,11,12,13].map(tricks => (
           <button
             key={tricks}
-            onClick={() => {
-              const bid = legalBids.find(b => b.tricks === tricks);
-              if (bid) onBid(tricks, bid.suit);
-            }}
-            disabled={!legalBids.some(b => b.tricks === tricks)}
+            onClick={() => onBid(tricks, suit)}
+            disabled={!legalBids.some(b => b.tricks === tricks && b.suit === suit)}
             className="px-2 py-1 text-xs font-medium rounded border transition-colors
               disabled:opacity-30 disabled:cursor-not-allowed
               bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600
               hover:bg-blue-100 dark:hover:bg-blue-900/30
               text-gray-800 dark:text-gray-200"
           >
-            {tricks}
+            {tricks} {SUIT_SYMBOLS[suit]}
           </button>
         ))}
       </div>
 
       <button
         onClick={onPass}
-        disabled={state.auction.bids.length === 0 && state.currentPlayer === 0}
+        disabled={mustOpen}
         className="w-full py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50"
       >
         Pass
@@ -142,125 +174,117 @@ function PartnerCallPanel({ state, availableCallCards, onCallCard }: {
   availableCallCards: Card[];
   onCallCard: (card: Card) => void;
 }) {
-  if (state.phase !== 'PARTNER_CALL' || state.currentPlayer !== 0) return null;
+  const [suit, setSuit] = useState<Suit>(state.contract?.trumpSuit ?? 'Spades');
 
-  const suits: Suit[] = ['Spades', 'Hearts', 'Clubs', 'Diamonds'];
-  const ranks: Rank[] = ['A', 'K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2'];
+  if (state.phase !== 'PARTNER_CALL' || state.currentPlayer !== 0 || !state.contract) return null;
+
+  const trump = state.contract.trumpSuit;
 
   return (
     <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-4 border border-yellow-200 dark:border-yellow-800">
       <h3 className="font-semibold text-yellow-800 dark:text-yellow-200 mb-3">
-        {PLAYER_NAMES[state.auction.declarer!]} won the auction. Choose a card to call your partner.
+        You won the auction. Choose a card to call your partner.
       </h3>
       <p className="text-sm text-yellow-700 dark:text-yellow-300 mb-4">
-        Contract: {state.contract?.tricksRequired} {SUIT_SYMBOLS[state.contract?.trumpSuit!]}
-        | Trump: {SUIT_SYMBOLS[state.contract?.trumpSuit!]}
+        Contract: {state.contract.tricksRequired} {SUIT_SYMBOLS[trump]} (trump {trump})
       </p>
 
-      <div className="grid grid-cols-4 gap-2 mb-4">
-        {suits.map(suit => (
-          <div key={suit} className="flex flex-col items-center gap-1">
-            <span className="font-bold text-xl">{SUIT_SYMBOLS[suit]}</span>
-            <span className="text-xs text-gray-500">{suit}</span>
-          </div>
-        ))}
-      </div>
+      <SuitPicker
+        selected={suit}
+        enabled={s => availableCallCards.some(c => c.suit === s)}
+        onSelect={setSuit}
+      />
 
       <div className="flex flex-wrap gap-2 justify-center">
-        {ranks.map(rank => (
+        {RANKS.map(rank => (
           <button
             key={rank}
-            onClick={() => {
-              for (const suit of suits) {
-                const card = availableCallCards.find(c => c.rank === rank && c.suit === suit);
-                if (card) { onCallCard(card); break; }
-              }
-            }}
-            disabled={!availableCallCards.some(c => c.rank === rank)}
+            onClick={() => onCallCard({ suit, rank })}
+            disabled={!availableCallCards.some(c => c.rank === rank && c.suit === suit)}
             className="px-2 py-1 text-xs font-medium rounded border transition-colors
               disabled:opacity-30 disabled:cursor-not-allowed
               bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600
               hover:bg-yellow-100 dark:hover:bg-yellow-900/30
               text-gray-800 dark:text-gray-200"
           >
-            {rank}
+            {rank} {SUIT_SYMBOLS[suit]}
           </button>
         ))}
       </div>
 
       <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-3 text-center">
-        Click a rank to call the highest available card of that rank. You cannot call cards in your hand.
+        Pick a suit, then a rank. Whoever holds that card is your partner. Cards in your own hand cannot be called.
       </p>
     </div>
   );
 }
 
 function TrickArea({ state }: { state: GameState }) {
-  if (state.phase !== 'TRICK_PLAY' || !state.tricks.current) return null;
+  if (state.phase !== 'TRICK_PLAY' && state.phase !== 'HAND_RESULT') return null;
 
-  const currentTrick = state.tricks.current;
-  const trumpSuit = state.contract?.trumpSuit;
+  const current = state.tricks.current;
+  const lastCompleted = state.tricks.completed[state.tricks.completed.length - 1];
+  // Keep the finished trick on the table until the next lead so the last card is visible.
+  const shown = current && current.cards.length > 0 ? current : lastCompleted ?? current;
+  const slot = (p: PlayerIndex) => {
+    const played = shown?.cards.find(c => c.player === p);
+    return (
+      <div className="w-16 h-22 flex items-center justify-center">
+        {played && (
+          <CardComponent
+            card={played.card}
+            faceUp={true}
+            size="medium"
+            className={shown?.winner === p && shown.cards.length === 4 ? 'ring-2 ring-green-500' : ''}
+          />
+        )}
+      </div>
+    );
+  };
+
+  const wonBy = (p: PlayerIndex) => state.tricks.completed.filter(t => t.winner === p).length;
 
   return (
-    <div className="relative flex-1 flex items-center justify-center p-4">
-      {trumpSuit && (
-        <div className="absolute top-2 right-2 bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200 px-3 py-1 rounded-full text-sm font-medium">
-          Trump: {SUIT_SYMBOLS[trumpSuit]}
-        </div>
-      )}
-
-      <div className="flex flex-col items-center gap-4">
-        {currentTrick.cards.some(c => c.player === 2) && (
-          <CardComponent
-            card={currentTrick.cards.find(c => c.player === 2)!.card}
-            faceUp={true}
-            size="medium"
-          />
-        )}
-
+    <div className="relative flex-1 flex items-center justify-center p-4 min-h-64">
+      <div className="flex flex-col items-center gap-2">
+        {slot(2)}
         <div className="flex gap-8">
-          {currentTrick.cards.some(c => c.player === 1) && (
-            <CardComponent
-              card={currentTrick.cards.find(c => c.player === 1)!.card}
-              faceUp={true}
-              size="medium"
-            />
-          )}
-
-          {currentTrick.cards.some(c => c.player === 3) && (
-            <CardComponent
-              card={currentTrick.cards.find(c => c.player === 3)!.card}
-              faceUp={true}
-              size="medium"
-            />
-          )}
+          {slot(1)}
+          {slot(3)}
         </div>
-
-        {currentTrick.cards.some(c => c.player === 0) && (
-          <CardComponent
-            card={currentTrick.cards.find(c => c.player === 0)!.card}
-            faceUp={true}
-            size="medium"
-          />
-        )}
+        {slot(0)}
       </div>
 
       <div className="absolute bottom-2 left-2 text-sm text-gray-600 dark:text-gray-300">
-        Trick {state.tricks.completed.length + 1} / 13
+        Trick {Math.min(state.tricks.completed.length + 1, 13)} / 13
       </div>
 
-      <div className="absolute bottom-2 right-2 text-sm text-gray-600 dark:text-gray-300">
-        {state.partnerships && (
-          <>
-            <span className="font-medium">NS: {state.tricks.completed.filter(t =>
-              t.winner === 0 || t.winner === 2
-            ).length}</span> |{' '}
-            <span className="font-medium">EW: {state.tricks.completed.filter(t =>
-              t.winner === 1 || t.winner === 3
-            ).length}</span>
-          </>
-        )}
+      <div className="absolute bottom-2 right-2 text-xs text-gray-600 dark:text-gray-300 text-right">
+        Tricks won: N {wonBy(2)} · E {wonBy(3)} · S {wonBy(0)} · W {wonBy(1)}
       </div>
+    </div>
+  );
+}
+
+function ContractBadge({ state }: { state: GameState }) {
+  if (!state.contract) return null;
+  const trump = state.contract.trumpSuit;
+  const trumpClass = SUIT_COLORS[trump] === 'red' ? 'text-red-600' : 'text-gray-900 dark:text-gray-100';
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <span className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 px-3 py-1 rounded-full">
+        Contract: <strong>{state.contract.tricksRequired}</strong>{' '}
+        <strong className={trumpClass}>{SUIT_SYMBOLS[trump]}</strong>
+        {state.auction.declarer !== null && <> by {PLAYER_NAMES[state.auction.declarer]}</>}
+      </span>
+      {state.calledCard && (
+        <span className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 px-3 py-1 rounded-full">
+          Partner card:{' '}
+          <strong className={SUIT_COLORS[state.calledCard.suit] === 'red' ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'}>
+            {state.calledCard.rank}{SUIT_SYMBOLS[state.calledCard.suit]}
+          </strong>
+        </span>
+      )}
     </div>
   );
 }
@@ -281,7 +305,7 @@ function ResultPanel({ state, onNewHand }: { state: GameState; onNewHand: () => 
         </h2>
 
         <div className="space-y-2 mb-6 text-lg">
-          <p>Contract: <strong>{state.contract?.tricksRequired} {SUIT_SYMBOLS[state.contract?.trumpSuit!]}</strong></p>
+          <p>Contract: <strong>{state.contract ? `${state.contract.tricksRequired} ${SUIT_SYMBOLS[state.contract.trumpSuit]}` : '-'}</strong></p>
           <p>Declarer: <strong>{declarerName}</strong></p>
           <p>Partner: <strong>{partnerName}</strong></p>
           <p>Tricks won: <strong>{state.result.tricksWonByDeclarer} / {state.contract?.tricksRequired}</strong></p>
@@ -354,6 +378,7 @@ export function GameTable({
   onCallCard,
   onPlayCard,
   onCloseTutorial,
+  onNewHand,
   showTutorial,
 }: GameTableProps) {
   const legalPlayKeys = new Set(legalPlays.map(c => `${c.rank}-${c.suit}`));
@@ -364,11 +389,7 @@ export function GameTable({
         <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-100">Singaporean Floating Bridge</h1>
         <div className="flex items-center gap-4">
           <span className="text-sm text-gray-600 dark:text-gray-300">{statusText}</span>
-          {showTutorial && (
-            <button onClick={onCloseTutorial} className="text-sm text-blue-600 hover:underline">
-              Hide Tutorial
-            </button>
-          )}
+          <ContractBadge state={state} />
         </div>
       </header>
 
@@ -382,7 +403,7 @@ export function GameTable({
         />
 
         <div className="flex flex-1 items-center justify-center w-full max-w-4xl relative">
-          <div className="w-4/5 flex flex-col items-center justify-center">
+          <div className="w-full flex flex-row items-center justify-between">
             <PlayerArea
               name={PLAYER_NAMES[1]}
               hand={state.hands[1]}
@@ -419,7 +440,7 @@ export function GameTable({
         </div>
       </div>
 
-      <ResultPanel state={state} onNewHand={() => {}} />
+      <ResultPanel state={state} onNewHand={onNewHand} />
 
       {showTutorial && <TutorialOverlay onClose={onCloseTutorial} />}
     </div>
