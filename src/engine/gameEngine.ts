@@ -6,9 +6,9 @@ import type {
 } from './types';
 import {
   createDeck, shuffleDeck, dealCards, sortHand,
-  isHigherBid,
+  isHigherBid, isValidTrickTarget,
   findCardInHand, removeCardFromHand,
-  PLAYER_NAMES, SUIT_SYMBOLS
+  PLAYER_NAMES, SUIT_SYMBOLS, PLAYERS
 } from './types';
 import { compareCardsInTrick } from './trickEvaluator';
 
@@ -16,14 +16,18 @@ const toPlayerIndex = (n: number): PlayerIndex => n as PlayerIndex;
 
 export function createInitialState(dealer: PlayerIndex = 0): GameState {
   const deck = shuffleDeck(createDeck());
-  const hands = dealCards(deck);
+  return createStateFromHands(dealCards(deck), dealer);
+}
 
+/** Build a fresh DEALING state from explicit hands. Used by tests to pin fixtures. */
+export function createStateFromHands(hands: Card[][], dealer: PlayerIndex = 0): GameState {
   return {
     phase: 'DEALING',
     dealer,
     hands: hands.map(sortHand),
     auction: {
       bids: [],
+      log: [],
       currentBid: null,
       activePlayers: new Set([0, 1, 2, 3]),
       passes: new Set(),
@@ -59,21 +63,20 @@ export function makeBid(state: GameState, player: PlayerIndex, tricks: number, s
   if (state.phase !== 'AUCTION') throw new Error('Not in auction phase');
   if (state.currentPlayer !== player) throw new Error('Not your turn to bid');
   if (!state.auction.activePlayers.has(player)) throw new Error('Player has passed');
+  if (!isValidTrickTarget(tricks)) throw new Error('Bid must be between 1 and 13 tricks');
 
   const bid: Bid = { player, tricks, suit };
   if (!isHigherBid(state.auction.currentBid, bid)) throw new Error('Bid must be higher than current bid');
-
-  const newBids = [...state.auction.bids, bid];
-  const nextPlayer = getNextActivePlayer(state, player);
 
   return {
     ...state,
     auction: {
       ...state.auction,
-      bids: newBids,
+      bids: [...state.auction.bids, bid],
+      log: [...state.auction.log, { player, bid }],
       currentBid: bid,
     },
-    currentPlayer: nextPlayer,
+    currentPlayer: getNextActivePlayer(state, player),
   };
 }
 
@@ -92,8 +95,12 @@ export function pass(state: GameState, player: PlayerIndex): GameState {
   const newActive = new Set(state.auction.activePlayers);
   newActive.delete(player);
 
-  // Always update the auction state with new active players and passes
-  const updatedAuction = { ...state.auction, activePlayers: newActive, passes: newPasses };
+  const updatedAuction = {
+    ...state.auction,
+    activePlayers: newActive,
+    passes: newPasses,
+    log: [...state.auction.log, { player, bid: null }],
+  };
 
   if (newActive.size === 1) {
     // Auction ends - one active bidder remains
@@ -119,8 +126,16 @@ export function pass(state: GameState, player: PlayerIndex): GameState {
   }
 }
 
-function getFirstBidder(state: GameState): PlayerIndex {
+/** The player who must open the auction: dealer's left. */
+export function getFirstBidder(state: GameState): PlayerIndex {
   return toPlayerIndex((state.dealer + 1) % 4);
+}
+
+/** True when `player` may pass right now (an opening bid exists, or they are not the opener). */
+export function canPass(state: GameState, player: PlayerIndex): boolean {
+  if (state.phase !== 'AUCTION' || state.currentPlayer !== player) return false;
+  if (!state.auction.activePlayers.has(player)) return false;
+  return !(state.auction.bids.length === 0 && player === getFirstBidder(state));
 }
 
 function getNextActivePlayer(state: GameState, current: PlayerIndex): PlayerIndex {
@@ -142,22 +157,12 @@ export function callPartner(state: GameState, declarer: PlayerIndex, calledCard:
   }
 
   // Find who has the called card
-  let partner: PlayerIndex | null = null;
-  for (let p = 0; p < 4; p++) {
-    if (findCardInHand(state.hands[p], calledCard) !== -1) {
-      partner = p as PlayerIndex;
-      break;
-    }
-  }
-
-  if (partner === null) throw new Error('Called card not found in any hand');
+  const partner = PLAYERS.find(p => findCardInHand(state.hands[p], calledCard) !== -1);
+  if (partner === undefined) throw new Error('Called card not found in any hand');
   if (partner === declarer) throw new Error('Cannot call your own card');
 
-  const otherPlayers = [0, 1, 2, 3].filter(p => p !== declarer && p !== partner);
-  const defenders: [PlayerIndex, PlayerIndex] = [
-    otherPlayers[0] as PlayerIndex,
-    otherPlayers[1] as PlayerIndex,
-  ];
+  const otherPlayers = PLAYERS.filter(p => p !== declarer && p !== partner);
+  const defenders: [PlayerIndex, PlayerIndex] = [otherPlayers[0], otherPlayers[1]];
 
   const partnerships: Partnership = {
     declarer,
@@ -237,20 +242,17 @@ export function playCard(state: GameState, player: PlayerIndex, card: Card): Gam
   };
 
   let nextPhase: GameState['phase'] = state.phase;
-  let nextTricks = {
+  let nextTricks: GameState['tricks'] = {
     completed: state.tricks.completed,
     current: updatedTrick,
   };
-  let nextCurrentPlayer: PlayerIndex | null = getNextPlayer(state, player);
+  let nextCurrentPlayer: PlayerIndex | null = toPlayerIndex((player + 1) % 4);
   let nextResult = state.result;
 
   if (newTrickCards.length === 4) {
     // Trick complete
     const completedTricks = [...state.tricks.completed, updatedTrick];
-    const tricksWonByDeclarer = completedTricks.filter(t => {
-      const p = t.winner;
-      return state.partnerships && (p === state.partnerships.declarer || p === state.partnerships.partner);
-    }).length;
+    const tricksWonByDeclarer = countTricksWon(completedTricks, state.partnerships!);
 
     if (completedTricks.length === 13) {
       // Hand complete
@@ -258,6 +260,7 @@ export function playCard(state: GameState, player: PlayerIndex, card: Card): Gam
       nextPhase = 'HAND_RESULT';
       nextResult = { tricksWonByDeclarer, contractMade };
       nextCurrentPlayer = null;
+      nextTricks = { completed: completedTricks, current: null };
     } else {
       // Next trick
       const nextLeader = updatedTrick.winner!;
@@ -285,11 +288,14 @@ export function playCard(state: GameState, player: PlayerIndex, card: Card): Gam
   };
 }
 
-function getNextPlayer(state: GameState, current: PlayerIndex): PlayerIndex | null {
-  if (state.tricks.current && state.tricks.current.cards.length < 3) {
-    return toPlayerIndex((current + 1) % 4);
-  }
-  return current;
+/** Tricks won so far by the declarer's side. */
+export function countTricksWon(completed: Trick[], partnerships: Partnership): number {
+  return completed.filter(t => t.winner === partnerships.declarer || t.winner === partnerships.partner).length;
+}
+
+export function isContractMade(state: GameState): boolean | null {
+  if (!state.partnerships || !state.contract || state.tricks.completed.length < 13) return null;
+  return countTricksWon(state.tricks.completed, state.partnerships) >= state.contract.tricksRequired;
 }
 
 export function startNextHand(state: GameState): GameState {
@@ -323,7 +329,9 @@ export function getGameStatusText(state: GameState): string {
       }
       return `${PLAYER_NAMES[currentPlayer ?? 0]} to open the bidding`;
     case 'PARTNER_CALL':
-      return `${PLAYER_NAMES[state.auction.declarer!]} won the auction. Choose a card to call your partner.`;
+      return state.auction.declarer === 0
+        ? 'You won the auction. Choose a card you do not hold to call your partner.'
+        : `${PLAYER_NAMES[state.auction.declarer!]} won the auction and is choosing a card to call a partner.`;
     case 'TRICK_PLAY':
       const trickNum = state.tricks.completed.length + 1;
       const leader = PLAYER_NAMES[state.tricks.current!.leader];

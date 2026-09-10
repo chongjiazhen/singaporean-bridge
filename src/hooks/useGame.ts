@@ -1,11 +1,11 @@
 import { useState, useCallback, useEffect } from 'react';
-import type { GameState, Card, Suit } from '../engine/types';
+import type { GameState, Card, Suit, Bid } from '../engine/types';
 import {
   createInitialState, startAuction, makeBid, pass,
   callPartner, playCard, startNextHand, getLegalPlays,
-  getGameStatusText
+  getGameStatusText, canPass
 } from '../engine/gameEngine';
-import { getLegalBids } from '../engine/types';
+import { getLegalBids, cardsEqual, createDeck, findCardInHand } from '../engine/types';
 import { makeAiDecision } from '../ai/aiPlayer';
 
 const AI_PHASES: ReadonlySet<GameState['phase']> = new Set(['AUCTION', 'PARTNER_CALL', 'TRICK_PLAY']);
@@ -27,6 +27,23 @@ function advanceOneAi(current: GameState): GameState {
   if (decision.action === 'call' && decision.card) return callPartner(current, player, decision.card);
   if (decision.action === 'play' && decision.card) return playCard(current, player, decision.card);
   return current;
+}
+
+// Legality queries for the human seat. Each handler re-checks against the
+// state it is applied to, so a stale click can never throw inside setState.
+function humanLegalBids(state: GameState): Bid[] {
+  return state.phase === 'AUCTION' && state.currentPlayer === 0
+    ? getLegalBids(state.auction.currentBid, 0)
+    : [];
+}
+
+function humanLegalPlays(state: GameState): Card[] {
+  return state.phase === 'TRICK_PLAY' && state.currentPlayer === 0 ? getLegalPlays(state, 0) : [];
+}
+
+function humanCallableCards(state: GameState): Card[] {
+  if (state.phase !== 'PARTNER_CALL' || state.currentPlayer !== 0) return [];
+  return createDeck().filter(card => findCardInHand(state.hands[0], card) === -1);
 }
 
 export function useGame() {
@@ -51,45 +68,26 @@ export function useGame() {
   }, []);
 
   const handleHumanBid = useCallback((tricks: number, suit: Suit) => {
-    setState(prev => makeBid(prev, 0, tricks, suit));
+    setState(prev => humanLegalBids(prev).some(b => b.tricks === tricks && b.suit === suit)
+      ? makeBid(prev, 0, tricks, suit)
+      : prev);
   }, []);
 
   const handleHumanPass = useCallback(() => {
-    setState(prev => pass(prev, 0));
+    setState(prev => (canPass(prev, 0) ? pass(prev, 0) : prev));
   }, []);
 
   const handleHumanCallCard = useCallback((card: Card) => {
-    setState(prev => callPartner(prev, 0, card));
+    setState(prev => humanCallableCards(prev).some(c => cardsEqual(c, card))
+      ? callPartner(prev, 0, card)
+      : prev);
   }, []);
 
   const handleHumanPlayCard = useCallback((card: Card) => {
-    setState(prev => playCard(prev, 0, card));
+    setState(prev => humanLegalPlays(prev).some(c => cardsEqual(c, card))
+      ? playCard(prev, 0, card)
+      : prev);
   }, []);
-
-  const isHumanTurn = state.currentPlayer === 0;
-
-  // Legal bids for the human. Empty unless it is actually the human's turn to bid.
-  const legalBids = state.phase === 'AUCTION' && isHumanTurn
-    ? getLegalBids(state.auction.currentBid, 0, state.auction.bids.length === 0)
-    : [];
-
-  const legalPlays = state.phase === 'TRICK_PLAY' && isHumanTurn
-    ? getLegalPlays(state, 0)
-    : [];
-
-  // Cards the human may call: any card not in the human's hand.
-  const availableCallCards: Card[] = [];
-  if (state.phase === 'PARTNER_CALL' && isHumanTurn) {
-    const suits: Suit[] = ['Spades', 'Hearts', 'Clubs', 'Diamonds'];
-    const ranks: Card['rank'][] = ['A', 'K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2'];
-    for (const suit of suits) {
-      for (const rank of ranks) {
-        if (!state.hands[0].some(c => c.suit === suit && c.rank === rank)) {
-          availableCallCards.push({ suit, rank });
-        }
-      }
-    }
-  }
 
   return {
     state,
@@ -100,10 +98,11 @@ export function useGame() {
     handleHumanPass,
     handleHumanCallCard,
     handleHumanPlayCard,
-    legalBids,
-    legalPlays,
-    availableCallCards,
+    legalBids: humanLegalBids(state),
+    legalPlays: humanLegalPlays(state),
+    availableCallCards: humanCallableCards(state),
+    canPass: canPass(state, 0),
     statusText: getGameStatusText(state),
-    isHumanTurn,
+    isHumanTurn: state.currentPlayer === 0,
   };
 }

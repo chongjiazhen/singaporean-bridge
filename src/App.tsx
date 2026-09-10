@@ -15,25 +15,26 @@ function App() {
     legalBids,
     legalPlays,
     availableCallCards,
+    canPass,
     statusText,
     isHumanTurn,
   } = useGame();
 
-  const humanHand = state.hands[0];
-
   return (
     <GameTable
       state={state}
-      humanHand={humanHand}
+      humanHand={state.hands[0]}
       legalPlays={legalPlays}
       availableCallCards={availableCallCards}
       legalBids={legalBids}
+      canPass={canPass}
       statusText={statusText}
       isHumanTurn={isHumanTurn}
       onBid={handleHumanBid}
       onPass={handleHumanPass}
       onCallCard={handleHumanCallCard}
       onPlayCard={handleHumanPlayCard}
+      onOpenTutorial={() => setShowTutorial(true)}
       onCloseTutorial={() => setShowTutorial(false)}
       onNewHand={handleNewHand}
       showTutorial={showTutorial}
