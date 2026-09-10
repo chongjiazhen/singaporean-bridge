@@ -88,6 +88,23 @@ The resulting hands are private:
 
 The entire deck is dealt before bidding begins.
 
+4.1 Wash (on by default)
+
+Bidding only begins once every hand is playable.
+
+Hand points:
+
+- Ace = 4, King = 3, Queen = 2, Jack = 1
+- Plus 1 for every card after the fourth in each suit (a six-card suit adds 2)
+
+A hand is playable when it holds at least the agreed minimum points. Default minimum: 4. The minimum is adjustable (1-10).
+
+If any hand is not playable, the deal is a wash: it is abandoned, the cards are shuffled and redealt by the same dealer, and the check repeats.
+
+The engine caps redeals at 1000 so an unreachable minimum cannot hang the game; the last deal is then played.
+
+A "Wash" toggle and minimum-points field control the rule. Changes take effect from the next deal.
+
 ---
 
 5. Auction
@@ -631,6 +648,8 @@ Step 1 — Deal
 
 Everyone receives 13 private cards.
 
+With the wash rule on, a deal where any hand has fewer than 4 points (section 4.1) is shuffled and redealt.
+
 Step 2 — Bid
 
 Players compete to name the number of tricks they believe their eventual partnership can win.
@@ -803,6 +822,10 @@ After the declarer calls a card, only the card holder knows that they are partne
 
 Other players do not immediately know the partnership.
 
+Wash (implemented, on by default at 4 points; see section 4.1)
+
+Redeal until every hand holds the agreed minimum points.
+
 Alternate First Lead
 
 Allow dealer-left or declarer lead as configurable variants.
@@ -859,6 +882,7 @@ Card/deal tests
 - 52 unique cards
 - 13 cards/player
 - no duplicates
+- wash: hand points (honours + length), a hand below the minimum washes the deal, a hand at the minimum does not, wash off plays the deal, redeal cap
 
 Auction tests
 

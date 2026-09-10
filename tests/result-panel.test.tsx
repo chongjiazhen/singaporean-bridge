@@ -2,13 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { GameTable } from '../src/components/GameTable';
 import type { GameState, PlayerIndex } from '../src/engine/types';
+import { DEFAULT_RULES } from '../src/engine/types';
 import {
   createInitialState, startAuction, makeBid, pass, callPartner, playCard,
 } from '../src/engine/gameEngine';
 import { makeAiDecision } from '../src/ai/aiPlayer';
 
 function playWholeHand(hiddenPartner: boolean): GameState {
-  let s = startAuction(createInitialState(0, { hiddenPartner }));
+  let s = startAuction(createInitialState(0, { ...DEFAULT_RULES, hiddenPartner }));
   let guard = 0;
   while (s.phase !== 'HAND_RESULT' && guard++ < 200) {
     const p = s.currentPlayer as PlayerIndex;
@@ -64,9 +65,22 @@ describe('End-of-hand summary', () => {
   });
 });
 
+describe('Wash display', () => {
+  it('shows the wash count, the minimum and your points during the auction', () => {
+    const html = render({ ...startAuction(createInitialState(0, DEFAULT_RULES)), washes: 2 });
+    expect(html).toContain('Washed 2 deals.');
+    expect(html).toMatch(/at least 4 points; yours has \d+\./);
+  });
+
+  it('says nothing about washing when the rule is off', () => {
+    const html = render(startAuction(createInitialState(0, { ...DEFAULT_RULES, wash: false })));
+    expect(html).not.toMatch(/yours has/);
+  });
+});
+
 describe('Hidden partner display', () => {
   it('does not name the holder before the called card is played, unless you hold it', () => {
-    let s = startAuction(createInitialState(0, { hiddenPartner: true }));
+    let s = startAuction(createInitialState(0, { ...DEFAULT_RULES, hiddenPartner: true }));
     let guard = 0;
     while (s.phase !== 'TRICK_PLAY' && guard++ < 50) {
       const p = s.currentPlayer as PlayerIndex;

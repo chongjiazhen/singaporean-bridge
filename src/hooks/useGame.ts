@@ -66,9 +66,10 @@ function humanCallableCards(state: GameState): Card[] {
 }
 
 export function useGame() {
-  // The player's chosen rules. They reach the table immediately while the auction is
-  // still open (nothing about partners is known yet), otherwise from the next deal:
-  // flipping mid-play would either leak or un-reveal the partner.
+  // The player's chosen rules. Hidden partner reaches the table immediately while the
+  // auction is still open (nothing about partners is known yet), otherwise from the next
+  // deal: flipping mid-play would either leak or un-reveal the partner. Wash rules always
+  // wait for the next deal, since the current one has already been dealt.
   const [rules, setRulesState] = useState<GameRules>(loadRules);
   const [state, setState] = useState<GameState>(() => startAuction(createInitialState(0, rules)));
   const [showTutorial, setShowTutorial] = useState(true);
@@ -77,7 +78,9 @@ export function useGame() {
     setRulesState(prevRules => {
       const nextRules = { ...prevRules, ...change };
       saveRules(nextRules);
-      setState(prev => (prev.phase === 'DEALING' || prev.phase === 'AUCTION' ? setRules(prev, nextRules) : prev));
+      setState(prev => (prev.phase === 'DEALING' || prev.phase === 'AUCTION'
+        ? setRules(prev, { hiddenPartner: nextRules.hiddenPartner })
+        : prev));
       return nextRules;
     });
   }, []);

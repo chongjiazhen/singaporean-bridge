@@ -2,19 +2,19 @@ import { describe, it, expect } from 'vitest';
 import type { Card, GameState, PlayerIndex, Rank, Strain, Suit } from '../src/engine/types';
 import {
   createDeck, dealCards, compareBids, getLegalBids, isHigherBid, createCard, contractFor,
-  SUITS, RANKS, DEFAULT_RULES,
+  SUITS, RANKS, DEFAULT_RULES, handPoints, isWash,
 } from '../src/engine/types';
 import {
   createStateFromHands, startAuction, makeBid, pass, canPass, getFirstBidder,
   callPartner, playCard, getLegalPlays, isContractMade, meetsContract, startNextHand,
-  getSideKnowledge, isPartnershipPublic, isCalledCardPlayed, createInitialState,
+  getSideKnowledge, isPartnershipPublic, isCalledCardPlayed, createInitialState, MAX_WASHES,
 } from '../src/engine/gameEngine';
 import { compareCardsInTrick } from '../src/engine/trickEvaluator';
 import { makeAiDecision, MAX_AI_LEVEL } from '../src/ai/aiPlayer';
 
 // ---------- fixtures ----------
 
-const OPEN = { hiddenPartner: false };
+const OPEN = { ...DEFAULT_RULES, hiddenPartner: false };
 
 /** Parse "AS KH 10D ..." into cards. */
 function cards(spec: string): Card[] {
@@ -379,7 +379,7 @@ describe('Contract result', () => {
 // ---------- hidden partner variant ----------
 
 describe('Hidden partner rules', () => {
-  const hidden = { hiddenPartner: true };
+  const hidden = { ...DEFAULT_RULES, hiddenPartner: true };
   /** West declares 1♥, calls AC (North). North leads. */
   function hiddenState() {
     const s = auctionWonBy(createStateFromHands(suitPerPlayer(), 0, hidden), 1, 1, 'Hearts');
@@ -422,7 +422,7 @@ describe('Hidden partner rules', () => {
     for (const hiddenPartner of [false, true]) {
       for (let dealer = 0; dealer < 4; dealer++) {
         for (let i = 0; i < 25; i++) {
-          const s = aiPlayHand(startAuction(createInitialState(dealer as PlayerIndex, { hiddenPartner })));
+          const s = aiPlayHand(startAuction(createInitialState(dealer as PlayerIndex, { ...DEFAULT_RULES, hiddenPartner })));
           expect(s.phase).toBe('HAND_RESULT');
           expect(s.tricks.completed).toHaveLength(13);
           expect(s.contract!.level).toBeLessThanOrEqual(MAX_AI_LEVEL);
@@ -441,6 +441,71 @@ describe('Hidden partner rules', () => {
     const s = startNextHand(hiddenState());
     expect(s.rules).toEqual(hidden);
     expect(s.phase).toBe('DEALING');
+  });
+});
+
+// ---------- wash variant ----------
+
+describe('Wash rules', () => {
+  /** South holds 12 small cards and one jack: 1 point. */
+  function weakSouthDeal(): Card[][] {
+    return [
+      cards('JS 2S 3S 4S 2H 3H 4H 2C 3C 4C 2D 3D 4D'),
+      cards('AS KS QS 5S 6S 7S 5H 6H 7H 5C 6C 7C 5D'),
+      cards('AH KH QH JH 8H 9H 10H 8C 9C 10C 6D 7D 8D'),
+      cards('AC KC QC JC AD KD QD JD 10S 9S 8S 10D 9D'),
+    ];
+  }
+  /** Scripted dealer: returns each deal in turn, repeating the last. */
+  function dealer(...deals: Card[][][]) {
+    let i = 0;
+    return () => deals[Math.min(i++, deals.length - 1)];
+  }
+
+  it('scores A 4, K 3, Q 2, J 1, plus 1 per card past the fourth in a suit', () => {
+    expect(handPoints(cards('AS KS QS JS 2H 3H 4H 2C 3C 4C 2D 3D 4D'))).toBe(10);
+    // Six spades: two length points. Five hearts: one.
+    expect(handPoints(cards('2S 3S 4S 5S 6S 7S 2H 3H 4H 5H 6H 2C 2D'))).toBe(3);
+    expect(handPoints(RANKS.map(rank => ({ suit: 'Spades' as Suit, rank })))).toBe(10 + 9);
+    expect(weakSouthDeal().map(handPoints)).toEqual([1, 9 + 2, 10 + 3, 20 + 2]);
+  });
+
+  it('is on by default at 4 points', () => {
+    expect(DEFAULT_RULES.wash).toBe(true);
+    expect(DEFAULT_RULES.washMinPoints).toBe(4);
+  });
+
+  it('washes a deal where any hand is below the minimum, and redeals', () => {
+    expect(isWash(weakSouthDeal(), DEFAULT_RULES)).toBe(true);
+    expect(isWash(mixedHands(), DEFAULT_RULES)).toBe(false);
+    const s = createInitialState(0, DEFAULT_RULES, dealer(weakSouthDeal(), weakSouthDeal(), mixedHands()));
+    expect(s.washes).toBe(2);
+    expect(s.hands).toEqual(createStateFromHands(mixedHands()).hands);
+  });
+
+  it('a hand exactly at the minimum is playable; the minimum is adjustable', () => {
+    expect(isWash(weakSouthDeal(), { ...DEFAULT_RULES, washMinPoints: 1 })).toBe(false);
+    expect(isWash(weakSouthDeal(), { ...DEFAULT_RULES, washMinPoints: 2 })).toBe(true);
+    expect(isWash(mixedHands(), { ...DEFAULT_RULES, washMinPoints: 10 })).toBe(true);
+  });
+
+  it('with wash off, a weak deal is played', () => {
+    const s = createInitialState(0, { ...DEFAULT_RULES, wash: false }, dealer(weakSouthDeal(), mixedHands()));
+    expect(s.washes).toBe(0);
+    expect(handPoints(s.hands[0])).toBe(1);
+  });
+
+  it('stops redealing at the cap rather than hanging', () => {
+    const s = createInitialState(0, DEFAULT_RULES, dealer(weakSouthDeal()));
+    expect(s.washes).toBe(MAX_WASHES);
+  });
+
+  it('random deals honour the minimum', () => {
+    const rules = { ...DEFAULT_RULES, washMinPoints: 7 };
+    for (let i = 0; i < 50; i++) {
+      const s = createInitialState(0, rules);
+      expect(Math.min(...s.hands.map(handPoints))).toBeGreaterThanOrEqual(7);
+    }
   });
 });
 

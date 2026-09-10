@@ -96,9 +96,35 @@ export interface GameRules {
    * they are partner. Everyone else learns the partnership when that card is played.
    */
   hiddenPartner: boolean;
+  /** Wash: throw in and redeal until every hand holds at least `washMinPoints` (SPEC 4.1). */
+  wash: boolean;
+  washMinPoints: number;
 }
 
-export const DEFAULT_RULES: GameRules = { hiddenPartner: true };
+export const DEFAULT_RULES: GameRules = { hiddenPartner: true, wash: true, washMinPoints: 4 };
+
+/** Range the wash minimum may be set to. Above 10 almost no deal qualifies. */
+export const MIN_WASH_POINTS = 1;
+export const MAX_WASH_POINTS = 10;
+
+const HONOUR_POINTS: Partial<Record<Rank, number>> = { A: 4, K: 3, Q: 2, J: 1 };
+
+/** Wash points: A 4, K 3, Q 2, J 1, plus 1 for every card past the fourth in a suit. */
+export function handPoints(hand: Card[]): number {
+  let points = 0;
+  const length: Record<Suit, number> = { Spades: 0, Hearts: 0, Clubs: 0, Diamonds: 0 };
+  for (const card of hand) {
+    points += HONOUR_POINTS[card.rank] ?? 0;
+    length[card.suit]++;
+  }
+  for (const suit of SUITS) points += Math.max(0, length[suit] - 4);
+  return points;
+}
+
+/** True when the rules call for this deal to be thrown in: some hand is below the minimum. */
+export function isWash(hands: Card[][], rules: GameRules): boolean {
+  return rules.wash && hands.some(hand => handPoints(hand) < rules.washMinPoints);
+}
 
 /** What one seat knows about another seat's side. */
 export type SideKnowledge = 'self' | 'ally' | 'opponent' | 'unknown';
@@ -113,6 +139,8 @@ export interface GameState {
   phase: Phase;
   rules: GameRules;
   dealer: PlayerIndex;
+  /** Deals thrown in (washed) before this one. */
+  washes: number;
   hands: Card[][];
   auction: {
     bids: Bid[];

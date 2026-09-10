@@ -7,16 +7,31 @@ import type {
 import {
   createDeck, shuffleDeck, dealCards, sortHand,
   isHigherBid, isValidLevel, cardsEqual, contractFor, bidToString,
-  findCardInHand, removeCardFromHand,
+  findCardInHand, removeCardFromHand, isWash,
   PLAYER_NAMES, PLAYERS, DEFAULT_RULES, MIN_LEVEL, MAX_LEVEL
 } from './types';
 import { compareCardsInTrick } from './trickEvaluator';
 
 const toPlayerIndex = (n: number): PlayerIndex => n as PlayerIndex;
 
-export function createInitialState(dealer: PlayerIndex = 0, rules: GameRules = DEFAULT_RULES): GameState {
-  const deck = shuffleDeck(createDeck());
-  return createStateFromHands(dealCards(deck), dealer, rules);
+/** Redeal cap, so an unreachable wash minimum cannot hang the deal. The last deal is then played. */
+export const MAX_WASHES = 1000;
+
+const randomDeal = () => dealCards(shuffleDeck(createDeck()));
+
+/** Deal a hand, washing and redealing while any hand is below the wash minimum. `deal` is injectable for tests. */
+export function createInitialState(
+  dealer: PlayerIndex = 0,
+  rules: GameRules = DEFAULT_RULES,
+  deal: () => Card[][] = randomDeal,
+): GameState {
+  let hands = deal();
+  let washes = 0;
+  while (washes < MAX_WASHES && isWash(hands, rules)) {
+    hands = deal();
+    washes++;
+  }
+  return { ...createStateFromHands(hands, dealer, rules), washes };
 }
 
 /** Build a fresh DEALING state from explicit hands. Used by tests to pin fixtures. */
@@ -25,6 +40,7 @@ export function createStateFromHands(hands: Card[][], dealer: PlayerIndex = 0, r
     phase: 'DEALING',
     rules,
     dealer,
+    washes: 0,
     hands: hands.map(sortHand),
     auction: {
       bids: [],

@@ -3,7 +3,7 @@ import { CardComponent } from './Card';
 import type { GameState, Card, Suit, Strain, PlayerIndex, Bid, GameRules, Trick, Contract } from '../engine/types';
 import {
   PLAYER_NAMES, SUIT_SYMBOLS, SUIT_COLORS, STRAIN_SYMBOLS, STRAINS, SUITS, RANKS, PLAYERS,
-  MIN_LEVEL, MAX_LEVEL, tricksForLevel, cardsEqual,
+  MIN_LEVEL, MAX_LEVEL, tricksForLevel, cardsEqual, handPoints, MIN_WASH_POINTS, MAX_WASH_POINTS,
 } from '../engine/types';
 import { countTricksWon, getSideKnowledge, isPartnershipPublic } from '../engine/gameEngine';
 import { X, HelpCircle } from 'lucide-react';
@@ -135,6 +135,12 @@ function AuctionLog({ state }: { state: GameState }) {
           You don't have a partner yet. The winner will call one after the auction.
         </span>
       </div>
+      {state.rules.wash && (
+        <div className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+          {state.washes > 0 && `Washed ${state.washes} ${state.washes === 1 ? 'deal' : 'deals'}. `}
+          Every hand has at least {state.rules.washMinPoints} points; yours has {handPoints(state.hands[0])}.
+        </div>
+      )}
       {log.length === 0 ? (
         <div className="text-gray-500 dark:text-gray-400">No bids yet. {PLAYER_NAMES[state.currentPlayer ?? 0]} must open.</div>
       ) : (
@@ -454,7 +460,7 @@ function ResultPanel({ state, onNewHand }: { state: GameState; onNewHand: () => 
 
 function TutorialOverlay({ onClose }: { onClose: () => void }) {
   const steps = [
-    'Deal: everyone receives 13 private cards.',
+    'Deal: everyone receives 13 private cards. A hand scores A 4, K 3, Q 2, J 1, plus 1 for each card past the fourth in a suit. With the wash rule on (the default), if any hand has fewer than 4 points the deal is a wash: the cards are shuffled and redealt.',
     "Bid: a bid is a level from 1 to 7 plus a strain (a trump suit, or no trump). Your side must win level + 6 tricks, so 1♠ needs 7 and 7NT needs all 13. A higher level wins; at the same level NT > ♠ > ♥ > ♣ > ♦. You don't know who your partner is yet!",
     'The first bidder may not pass. The auction ends when only one bidder is left, and their bid becomes the contract.',
     "Call a card: the declarer names a card they don't hold. Whoever has it becomes their partner. With hidden partner on (the default), only that player knows until the card is played.",
@@ -551,6 +557,34 @@ export function GameTable({
             />
             Hidden partner
             {rules.hiddenPartner !== state.rules.hiddenPartner && (
+              <span className="text-xs text-amber-600 dark:text-amber-400">(from next hand)</span>
+            )}
+          </label>
+          <label
+            className="text-sm text-gray-600 dark:text-gray-300 flex items-center gap-1 cursor-pointer"
+            title="Redeal unless every hand has at least this many points: A 4, K 3, Q 2, J 1, plus 1 for each card past the fourth in a suit."
+          >
+            <input
+              type="checkbox"
+              checked={rules.wash}
+              onChange={e => onSetRules({ wash: e.target.checked })}
+            />
+            Wash under
+            <input
+              type="number"
+              min={MIN_WASH_POINTS}
+              max={MAX_WASH_POINTS}
+              value={rules.washMinPoints}
+              disabled={!rules.wash}
+              onChange={e => {
+                const n = Number(e.target.value);
+                if (Number.isInteger(n) && n >= MIN_WASH_POINTS && n <= MAX_WASH_POINTS) onSetRules({ washMinPoints: n });
+              }}
+              className="w-12 px-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 disabled:opacity-50"
+              aria-label="Wash minimum points"
+            />
+            points
+            {(rules.wash !== state.rules.wash || rules.washMinPoints !== state.rules.washMinPoints) && (
               <span className="text-xs text-amber-600 dark:text-amber-400">(from next hand)</span>
             )}
           </label>
