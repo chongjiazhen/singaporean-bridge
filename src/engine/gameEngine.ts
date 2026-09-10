@@ -2,27 +2,28 @@
 
 import type {
   GameState, PlayerIndex, Card, Bid, Trick, Partnership,
-  Suit
+  Suit, GameRules, SideKnowledge
 } from './types';
 import {
   createDeck, shuffleDeck, dealCards, sortHand,
-  isHigherBid, isValidTrickTarget,
+  isHigherBid, isValidTrickTarget, cardsEqual,
   findCardInHand, removeCardFromHand,
-  PLAYER_NAMES, SUIT_SYMBOLS, PLAYERS
+  PLAYER_NAMES, SUIT_SYMBOLS, PLAYERS, DEFAULT_RULES
 } from './types';
 import { compareCardsInTrick } from './trickEvaluator';
 
 const toPlayerIndex = (n: number): PlayerIndex => n as PlayerIndex;
 
-export function createInitialState(dealer: PlayerIndex = 0): GameState {
+export function createInitialState(dealer: PlayerIndex = 0, rules: GameRules = DEFAULT_RULES): GameState {
   const deck = shuffleDeck(createDeck());
-  return createStateFromHands(dealCards(deck), dealer);
+  return createStateFromHands(dealCards(deck), dealer, rules);
 }
 
 /** Build a fresh DEALING state from explicit hands. Used by tests to pin fixtures. */
-export function createStateFromHands(hands: Card[][], dealer: PlayerIndex = 0): GameState {
+export function createStateFromHands(hands: Card[][], dealer: PlayerIndex = 0, rules: GameRules = DEFAULT_RULES): GameState {
   return {
     phase: 'DEALING',
+    rules,
     dealer,
     hands: hands.map(sortHand),
     auction: {
@@ -300,7 +301,55 @@ export function isContractMade(state: GameState): boolean | null {
 
 export function startNextHand(state: GameState): GameState {
   const nextDealer = toPlayerIndex((state.dealer + 1) % 4);
-  return createInitialState(nextDealer);
+  return createInitialState(nextDealer, state.rules);
+}
+
+export function setRules(state: GameState, rules: Partial<GameRules>): GameState {
+  return { ...state, rules: { ...state.rules, ...rules } };
+}
+
+/** True once the called card has hit the table (in a completed or the current trick). */
+export function isCalledCardPlayed(state: GameState): boolean {
+  const called = state.calledCard;
+  if (!called) return false;
+  const tricks = [...state.tricks.completed, ...(state.tricks.current ? [state.tricks.current] : [])];
+  return tricks.some(t => t.cards.some(c => cardsEqual(c.card, called)));
+}
+
+/**
+ * Whether the partnership is public knowledge to everyone right now:
+ * always in the standard game, and once the called card is played under hidden-partner rules.
+ */
+export function isPartnershipPublic(state: GameState): boolean {
+  if (!state.partnerships) return false;
+  return !state.rules.hiddenPartner || isCalledCardPlayed(state);
+}
+
+/**
+ * What `viewer` legitimately knows about each seat's side. Under hidden-partner
+ * rules before the called card is played: the partner knows everything, the
+ * declarer knows nothing beyond "not me", a defender knows only that the
+ * declarer is an opponent.
+ */
+export function getSideKnowledge(state: GameState, viewer: PlayerIndex): Record<PlayerIndex, SideKnowledge> {
+  const p = state.partnerships;
+  const result = { 0: 'unknown', 1: 'unknown', 2: 'unknown', 3: 'unknown' } as Record<PlayerIndex, SideKnowledge>;
+  result[viewer] = 'self';
+  if (!p) return result;
+
+  const ally = (a: PlayerIndex, b: PlayerIndex) =>
+    (a === p.declarer || a === p.partner) === (b === p.declarer || b === p.partner);
+  const full = () => {
+    for (const seat of PLAYERS) if (seat !== viewer) result[seat] = ally(viewer, seat) ? 'ally' : 'opponent';
+  };
+
+  if (isPartnershipPublic(state) || viewer === p.partner) {
+    full();
+  } else if (viewer !== p.declarer) {
+    // Defender: knows only that the declarer is on the other side.
+    result[p.declarer] = 'opponent';
+  }
+  return result;
 }
 
 export function getLegalPlays(state: GameState, player: PlayerIndex): Card[] {
@@ -332,10 +381,12 @@ export function getGameStatusText(state: GameState): string {
       return state.auction.declarer === 0
         ? 'You won the auction. Choose a card you do not hold to call your partner.'
         : `${PLAYER_NAMES[state.auction.declarer!]} won the auction and is choosing a card to call a partner.`;
-    case 'TRICK_PLAY':
+    case 'TRICK_PLAY': {
       const trickNum = state.tricks.completed.length + 1;
       const leader = PLAYER_NAMES[state.tricks.current!.leader];
-      return `Trick ${trickNum}/13. ${leader} led. ${PLAYER_NAMES[currentPlayer ?? 0]} to play.`;
+      const toPlay = currentPlayer === 0 ? 'You' : PLAYER_NAMES[currentPlayer ?? 0];
+      return `Trick ${trickNum}/13. ${leader} led. ${toPlay} to play.`;
+    }
     case 'HAND_RESULT':
       return state.result!.contractMade
         ? `Contract MADE: ${state.result!.tricksWonByDeclarer}/${state.contract!.tricksRequired} tricks`

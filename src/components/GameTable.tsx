@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { CardComponent } from './Card';
-import type { GameState, Card, Suit, PlayerIndex, Bid } from '../engine/types';
-import { PLAYER_NAMES, SUIT_SYMBOLS, SUIT_COLORS, SUITS, RANKS } from '../engine/types';
-import { countTricksWon } from '../engine/gameEngine';
+import type { GameState, Card, Suit, PlayerIndex, Bid, GameRules, Trick } from '../engine/types';
+import { PLAYER_NAMES, SUIT_SYMBOLS, SUIT_COLORS, SUITS, RANKS, PLAYERS, cardsEqual } from '../engine/types';
+import { countTricksWon, getSideKnowledge, isPartnershipPublic } from '../engine/gameEngine';
 import { X, HelpCircle } from 'lucide-react';
 
 interface GameTableProps {
   state: GameState;
+  /** Rules the player has chosen; may differ from state.rules until the next deal. */
+  rules: GameRules;
   humanHand: Card[];
   legalPlays: Card[];
   availableCallCards: Card[];
@@ -21,6 +23,7 @@ interface GameTableProps {
   onOpenTutorial: () => void;
   onCloseTutorial: () => void;
   onNewHand: () => void;
+  onSetRules: (rules: Partial<GameRules>) => void;
   showTutorial: boolean;
 }
 
@@ -257,8 +260,10 @@ function TrickArea({ state }: { state: GameState }) {
   };
 
   const p = state.partnerships;
+  const publicSides = isPartnershipPublic(state);
   const declarerSide = p ? countTricksWon(state.tricks.completed, p) : 0;
   const defenderSide = state.tricks.completed.length - declarerSide;
+  const wonBy = (seat: PlayerIndex) => state.tricks.completed.filter(t => t.winner === seat).length;
 
   return (
     <div className="relative flex-1 flex items-center justify-center p-4 min-h-64">
@@ -277,13 +282,22 @@ function TrickArea({ state }: { state: GameState }) {
 
       {p && state.contract && (
         <div className="absolute bottom-2 right-2 text-xs text-gray-600 dark:text-gray-300 text-right">
-          <div>
-            {PLAYER_NAMES[p.declarer]} + {PLAYER_NAMES[p.partner]}:{' '}
-            <strong>{declarerSide}</strong> / {state.contract.tricksRequired} needed
-          </div>
-          <div>
-            {PLAYER_NAMES[p.defenders[0]]} + {PLAYER_NAMES[p.defenders[1]]}: <strong>{defenderSide}</strong>
-          </div>
+          {publicSides ? (
+            <>
+              <div>
+                {PLAYER_NAMES[p.declarer]} + {PLAYER_NAMES[p.partner]}:{' '}
+                <strong>{declarerSide}</strong> / {state.contract.tricksRequired} needed
+              </div>
+              <div>
+                {PLAYER_NAMES[p.defenders[0]]} + {PLAYER_NAMES[p.defenders[1]]}: <strong>{defenderSide}</strong>
+              </div>
+            </>
+          ) : (
+            <>
+              <div>Partner not yet revealed. {PLAYER_NAMES[p.declarer]} needs {state.contract.tricksRequired}.</div>
+              <div>Tricks: {PLAYERS.map(s => `${PLAYER_NAMES[s][0]} ${wonBy(s)}`).join(' · ')}</div>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -296,12 +310,24 @@ function ContractBadge({ state }: { state: GameState }) {
   const { trumpSuit, tricksRequired } = state.contract;
   const declarer = state.auction.declarer;
   const p = state.partnerships;
+  const called = state.calledCard;
+
+  // Only say what the human seat legitimately knows (hidden-partner rules).
+  const known = getSideKnowledge(state, 0);
+  const holderKnown = p !== null && (isPartnershipPublic(state) || p.partner === 0);
 
   let side: string | null = null;
-  if (p) {
-    if (p.declarer === 0) side = `Your partner is ${PLAYER_NAMES[p.partner]}.`;
-    else if (p.partner === 0) side = `You are ${PLAYER_NAMES[p.declarer]}'s partner.`;
-    else side = `You defend with ${PLAYER_NAMES[p.defenders.find(d => d !== 0)!]}.`;
+  if (p && called) {
+    if (p.declarer === 0) {
+      side = holderKnown ? `Your partner is ${PLAYER_NAMES[p.partner]}.` : 'Your partner is whoever holds the called card. Not yet known.';
+    } else if (p.partner === 0) {
+      side = `You hold the called card: you are ${PLAYER_NAMES[p.declarer]}'s secret partner.`;
+    } else {
+      const other = p.defenders.find(d => d !== 0)!;
+      side = known[other] === 'ally'
+        ? `You defend with ${PLAYER_NAMES[other]}.`
+        : `You defend against ${PLAYER_NAMES[p.declarer]}. Their partner is not yet known.`;
+    }
   }
 
   const pill = 'bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 px-3 py-1 rounded-full';
@@ -311,12 +337,65 @@ function ContractBadge({ state }: { state: GameState }) {
         <BidText bid={{ player: declarer, tricks: tricksRequired, suit: trumpSuit }} /> by {PLAYER_NAMES[declarer]}
         {' '}({trumpSuit} trump, {tricksRequired} tricks needed)
       </span>
-      {state.calledCard && p && (
+      {called && p && (
         <span className={pill}>
-          Called <CardText card={state.calledCard} />, held by <strong>{PLAYER_NAMES[p.partner]}</strong>
+          Called <CardText card={called} />
+          {holderKnown ? <>, held by <strong>{PLAYER_NAMES[p.partner]}</strong></> : ', holder hidden'}
         </span>
       )}
       {side && <span className={`${pill} font-medium`}>{side}</span>}
+    </div>
+  );
+}
+
+/** Trick-by-trick record of the hand, shown in the result panel. */
+function HandHistory({ state }: { state: GameState }) {
+  const called = state.calledCard;
+  const cell = (t: Trick, seat: PlayerIndex) => {
+    const play = t.cards.find(c => c.player === seat);
+    if (!play) return <td key={seat} />;
+    const isCalled = called !== null && cardsEqual(play.card, called);
+    const won = t.winner === seat;
+    return (
+      <td key={seat} className={`px-2 py-0.5 text-center ${won ? 'bg-green-100 dark:bg-green-900/40 rounded' : ''}`}>
+        <CardText card={play.card} />
+        {t.leader === seat && <span className="text-gray-400 text-[10px] ml-0.5">L</span>}
+        {isCalled && <span className="text-[10px] ml-0.5" title="called card">★</span>}
+      </td>
+    );
+  };
+
+  return (
+    <div className="text-left text-sm">
+      <div className="font-semibold mb-1">Auction</div>
+      <ol className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs mb-3">
+        {state.auction.log.map((call, i) => (
+          <li key={i}>{PLAYER_NAMES[call.player]}: {call.bid ? <BidText bid={call.bid} /> : <em>pass</em>}</li>
+        ))}
+      </ol>
+
+      <div className="font-semibold mb-1">Tricks</div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs border-collapse">
+          <thead>
+            <tr className="text-gray-500 dark:text-gray-400">
+              <th className="px-2 py-0.5 text-left">#</th>
+              {PLAYERS.map(s => <th key={s} className="px-2 py-0.5">{PLAYER_NAMES[s]}</th>)}
+              <th className="px-2 py-0.5 text-left">Won</th>
+            </tr>
+          </thead>
+          <tbody>
+            {state.tricks.completed.map((t, i) => (
+              <tr key={i} className="border-t border-gray-200 dark:border-gray-700">
+                <td className="px-2 py-0.5 text-gray-500 dark:text-gray-400">{i + 1}</td>
+                {PLAYERS.map(s => cell(t, s))}
+                <td className="px-2 py-0.5 font-medium">{t.winner !== null ? PLAYER_NAMES[t.winner] : ''}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-1">L = led the trick · ★ = called card · green = trick winner</div>
     </div>
   );
 }
@@ -329,21 +408,22 @@ function ResultPanel({ state, onNewHand }: { state: GameState; onNewHand: () => 
 
   return (
     <div className="fixed inset-0 flex items-center justify-center z-50 bg-black/50">
-      <div className={`bg-white dark:bg-gray-800 rounded-xl p-8 max-w-md w-full mx-4 text-center border-4 ${made ? 'border-green-500' : 'border-red-500'}`}>
-        <h2 className={`text-3xl font-bold mb-4 ${made ? 'text-green-600' : 'text-red-600'}`}>
+      <div className={`bg-white dark:bg-gray-800 rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto text-center border-4 ${made ? 'border-green-500' : 'border-red-500'}`}>
+        <h2 className={`text-3xl font-bold mb-3 ${made ? 'text-green-600' : 'text-red-600'}`}>
           {made ? 'CONTRACT MADE' : 'CONTRACT FAILED'}
         </h2>
 
-        <div className="space-y-2 mb-6 text-lg">
-          <p>Contract: <BidText bid={{ player: declarer, tricks: state.contract.tricksRequired, suit: state.contract.trumpSuit }} /></p>
-          <p>Declarer: <strong>{PLAYER_NAMES[declarer]}</strong></p>
+        <div className="space-y-1 mb-4">
+          <p>Contract: <BidText bid={{ player: declarer, tricks: state.contract.tricksRequired, suit: state.contract.trumpSuit }} /> by <strong>{PLAYER_NAMES[declarer]}</strong></p>
           <p>Partner: <strong>{PLAYER_NAMES[partner]}</strong>{state.calledCard && <> (held <CardText card={state.calledCard} />)</>}</p>
           <p>Tricks won: <strong>{state.result.tricksWonByDeclarer} / {state.contract.tricksRequired}</strong></p>
         </div>
 
+        <HandHistory state={state} />
+
         <button
           onClick={onNewHand}
-          className="w-full py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
+          className="mt-4 w-full py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
         >
           Play Next Hand
         </button>
@@ -408,6 +488,7 @@ function TutorialOverlay({ onClose }: { onClose: () => void }) {
 
 export function GameTable({
   state,
+  rules,
   humanHand,
   legalPlays,
   availableCallCards,
@@ -422,6 +503,7 @@ export function GameTable({
   onOpenTutorial,
   onCloseTutorial,
   onNewHand,
+  onSetRules,
   showTutorial,
 }: GameTableProps) {
   const legalPlayKeys = new Set(legalPlays.map(cardKey));
@@ -438,6 +520,20 @@ export function GameTable({
           <button onClick={onOpenTutorial} className="text-sm text-blue-600 hover:underline flex items-center gap-1">
             <HelpCircle className="w-4 h-4" /> How to play
           </button>
+          <label
+            className="text-sm text-gray-600 dark:text-gray-300 flex items-center gap-1 cursor-pointer"
+            title="Variant: only the holder of the called card knows they are partner until that card is played."
+          >
+            <input
+              type="checkbox"
+              checked={rules.hiddenPartner}
+              onChange={e => onSetRules({ hiddenPartner: e.target.checked })}
+            />
+            Hidden partner
+            {rules.hiddenPartner !== state.rules.hiddenPartner && (
+              <span className="text-xs text-amber-600 dark:text-amber-400">(from next hand)</span>
+            )}
+          </label>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-sm text-gray-600 dark:text-gray-300">{statusText}</span>

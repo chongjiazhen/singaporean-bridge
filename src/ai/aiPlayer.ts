@@ -5,7 +5,7 @@ import {
   getLegalBids, findCardInHand, RANK_ORDER, SUITS, RANKS
 } from '../engine/types';
 import { compareCardsInTrick } from '../engine/trickEvaluator';
-import { getLegalPlays, getFirstBidder } from '../engine/gameEngine';
+import { getLegalPlays, getFirstBidder, getSideKnowledge } from '../engine/gameEngine';
 
 /** Never bid above this many tricks: the hand evaluation is too crude to justify slams. */
 const MAX_AI_TARGET = 8;
@@ -117,12 +117,11 @@ function decideCardToPlay(state: GameState, player: PlayerIndex): Card {
 
   const ledSuit = currentTrick.ledSuit!;
   const winner = currentTrick.winner!;
-  const p = state.partnerships!;
-  const sameSide = (a: PlayerIndex, b: PlayerIndex) =>
-    (a === p.declarer || a === p.partner) === (b === p.declarer || b === p.partner);
 
-  // Partner is winning: play low.
-  if (sameSide(player, winner)) return lowestOf(legalPlays);
+  // Only what this seat legitimately knows (matters under hidden-partner rules):
+  // an unknown seat is treated as an opponent.
+  const knowledge = getSideKnowledge(state, player);
+  if (knowledge[winner] === 'ally') return lowestOf(legalPlays);
 
   // Try to win cheaply.
   const winningCard = currentTrick.cards.find(c => c.player === winner)!.card;

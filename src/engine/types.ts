@@ -69,6 +69,20 @@ export interface Partnership {
   defenders: [PlayerIndex, PlayerIndex];
 }
 
+/** Configurable variant rules (SPEC 27). Carried from hand to hand. */
+export interface GameRules {
+  /**
+   * Hidden partner: after the call, only the holder of the called card knows
+   * they are partner. Everyone else learns the partnership when that card is played.
+   */
+  hiddenPartner: boolean;
+}
+
+export const DEFAULT_RULES: GameRules = { hiddenPartner: false };
+
+/** What one seat knows about another seat's side. */
+export type SideKnowledge = 'self' | 'ally' | 'opponent' | 'unknown';
+
 /** One auction action in table order. `bid` is null for a pass. */
 export interface AuctionCall {
   player: PlayerIndex;
@@ -77,6 +91,7 @@ export interface AuctionCall {
 
 export interface GameState {
   phase: Phase;
+  rules: GameRules;
   dealer: PlayerIndex;
   hands: Card[][];
   auction: {

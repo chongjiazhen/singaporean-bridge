@@ -5,8 +5,10 @@ import {
 } from '../src/engine/types';
 import {
   createStateFromHands, startAuction, makeBid, pass, canPass, getFirstBidder,
-  callPartner, playCard, getLegalPlays, isContractMade,
+  callPartner, playCard, getLegalPlays, isContractMade, startNextHand,
+  getSideKnowledge, isPartnershipPublic, isCalledCardPlayed, createInitialState,
 } from '../src/engine/gameEngine';
+import { makeAiDecision } from '../src/ai/aiPlayer';
 import { compareCardsInTrick } from '../src/engine/trickEvaluator';
 
 // ---------- fixtures ----------
@@ -378,6 +380,73 @@ describe('Contract result', () => {
     }
     expect(seen.size).toBe(52);
     expect(s.hands.every(h => h.length === 0)).toBe(true);
+  });
+});
+
+// ---------- hidden partner variant ----------
+
+describe('Hidden partner rules', () => {
+  const hidden = { hiddenPartner: true };
+  /** West declares 5 Hearts, calls AC (North). North leads. */
+  function hiddenState() {
+    const s = auctionWonBy(createStateFromHands(suitPerPlayer(), 0, hidden), 1, 5, 'Hearts');
+    return callPartner(s, 1, createCard('Clubs', 'A'));
+  }
+
+  it('standard rules: partnership is public as soon as the card is called', () => {
+    const s = callPartner(auctionWonBy(createStateFromHands(suitPerPlayer(), 0), 1, 5, 'Hearts'), 1, createCard('Clubs', 'A'));
+    expect(isPartnershipPublic(s)).toBe(true);
+    expect(getSideKnowledge(s, 0)).toEqual({ 0: 'self', 1: 'opponent', 2: 'opponent', 3: 'ally' });
+  });
+
+  it('hidden rules: only the partner knows the sides before the card is played', () => {
+    const s = hiddenState();
+    expect(isPartnershipPublic(s)).toBe(false);
+    expect(isCalledCardPlayed(s)).toBe(false);
+    // Declarer (West) knows nothing beyond self.
+    expect(getSideKnowledge(s, 1)).toEqual({ 0: 'unknown', 1: 'self', 2: 'unknown', 3: 'unknown' });
+    // Partner (North) knows everything.
+    expect(getSideKnowledge(s, 2)).toEqual({ 0: 'opponent', 1: 'ally', 2: 'self', 3: 'opponent' });
+    // Defenders know only that the declarer is an opponent.
+    expect(getSideKnowledge(s, 0)).toEqual({ 0: 'self', 1: 'opponent', 2: 'unknown', 3: 'unknown' });
+    expect(getSideKnowledge(s, 3)).toEqual({ 0: 'unknown', 1: 'opponent', 2: 'unknown', 3: 'self' });
+  });
+
+  it('hidden rules: playing the called card reveals the partnership to all', () => {
+    let s = hiddenState();
+    s = playCard(s, 2, createCard('Clubs', 'A')); // North leads the called card
+    expect(isCalledCardPlayed(s)).toBe(true);
+    expect(isPartnershipPublic(s)).toBe(true);
+    expect(getSideKnowledge(s, 1)).toEqual({ 0: 'opponent', 1: 'self', 2: 'ally', 3: 'opponent' });
+    expect(getSideKnowledge(s, 0)).toEqual({ 0: 'self', 1: 'opponent', 2: 'opponent', 3: 'ally' });
+  });
+
+  it('AI plays complete legal hands under both rule sets', () => {
+    for (const hiddenPartner of [false, true]) {
+      for (let dealer = 0; dealer < 4; dealer++) {
+        for (let i = 0; i < 25; i++) {
+          let s = startAuction(createInitialState(dealer as PlayerIndex, { hiddenPartner }));
+          let guard = 0;
+          while (s.phase !== 'HAND_RESULT' && guard++ < 200) {
+            const p = s.currentPlayer!;
+            const d = makeAiDecision(s, p);
+            if (d.action === 'bid') s = makeBid(s, p, d.bid!.tricks, d.bid!.suit);
+            else if (d.action === 'pass') s = pass(s, p);
+            else if (d.action === 'call') s = callPartner(s, p, d.card!);
+            else s = playCard(s, p, d.card!);
+          }
+          expect(s.phase).toBe('HAND_RESULT');
+          expect(s.tricks.completed).toHaveLength(13);
+          expect(s.contract!.tricksRequired).toBeLessThanOrEqual(8);
+        }
+      }
+    }
+  });
+
+  it('rules carry over to the next hand', () => {
+    const s = startNextHand(hiddenState());
+    expect(s.rules).toEqual(hidden);
+    expect(s.phase).toBe('DEALING');
   });
 });
 

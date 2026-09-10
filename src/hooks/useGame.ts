@@ -1,11 +1,30 @@
 import { useState, useCallback, useEffect } from 'react';
-import type { GameState, Card, Suit, Bid } from '../engine/types';
+import type { GameState, Card, Suit, Bid, GameRules } from '../engine/types';
 import {
   createInitialState, startAuction, makeBid, pass,
   callPartner, playCard, startNextHand, getLegalPlays,
-  getGameStatusText, canPass
+  getGameStatusText, canPass, setRules
 } from '../engine/gameEngine';
-import { getLegalBids, cardsEqual, createDeck, findCardInHand } from '../engine/types';
+import { getLegalBids, cardsEqual, createDeck, findCardInHand, DEFAULT_RULES } from '../engine/types';
+
+const RULES_KEY = 'singaporean-bridge.rules';
+
+function loadRules(): GameRules {
+  try {
+    const raw = localStorage.getItem(RULES_KEY);
+    return raw ? { ...DEFAULT_RULES, ...JSON.parse(raw) } : DEFAULT_RULES;
+  } catch {
+    return DEFAULT_RULES;
+  }
+}
+
+function saveRules(rules: GameRules) {
+  try {
+    localStorage.setItem(RULES_KEY, JSON.stringify(rules));
+  } catch {
+    // Storage unavailable: the choice just lives for this page load.
+  }
+}
 import { makeAiDecision } from '../ai/aiPlayer';
 
 const AI_PHASES: ReadonlySet<GameState['phase']> = new Set(['AUCTION', 'PARTNER_CALL', 'TRICK_PLAY']);
@@ -47,8 +66,21 @@ function humanCallableCards(state: GameState): Card[] {
 }
 
 export function useGame() {
-  const [state, setState] = useState<GameState>(() => startAuction(createInitialState(0)));
+  // The player's chosen rules. They reach the table immediately while the auction is
+  // still open (nothing about partners is known yet), otherwise from the next deal:
+  // flipping mid-play would either leak or un-reveal the partner.
+  const [rules, setRulesState] = useState<GameRules>(loadRules);
+  const [state, setState] = useState<GameState>(() => startAuction(createInitialState(0, rules)));
   const [showTutorial, setShowTutorial] = useState(true);
+
+  const handleSetRules = useCallback((change: Partial<GameRules>) => {
+    setRulesState(prevRules => {
+      const nextRules = { ...prevRules, ...change };
+      saveRules(nextRules);
+      setState(prev => (prev.phase === 'DEALING' || prev.phase === 'AUCTION' ? setRules(prev, nextRules) : prev));
+      return nextRules;
+    });
+  }, []);
 
   // Drive AI turns one move at a time. A fresh trick after a completed one gets a
   // longer pause so the finished trick stays visible.
@@ -64,8 +96,8 @@ export function useGame() {
   }, [state]);
 
   const handleNewHand = useCallback(() => {
-    setState(prev => startAuction(startNextHand(prev)));
-  }, []);
+    setState(prev => startAuction(setRules(startNextHand(prev), rules)));
+  }, [rules]);
 
   const handleHumanBid = useCallback((tricks: number, suit: Suit) => {
     setState(prev => humanLegalBids(prev).some(b => b.tricks === tricks && b.suit === suit)
@@ -91,9 +123,11 @@ export function useGame() {
 
   return {
     state,
+    rules,
     showTutorial,
     setShowTutorial,
     handleNewHand,
+    handleSetRules,
     handleHumanBid,
     handleHumanPass,
     handleHumanCallCard,

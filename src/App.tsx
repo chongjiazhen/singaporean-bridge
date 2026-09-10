@@ -5,9 +5,11 @@ import './index.css';
 function App() {
   const {
     state,
+    rules,
     showTutorial,
     setShowTutorial,
     handleNewHand,
+    handleSetRules,
     handleHumanBid,
     handleHumanPass,
     handleHumanCallCard,
@@ -23,6 +25,7 @@ function App() {
   return (
     <GameTable
       state={state}
+      rules={rules}
       humanHand={state.hands[0]}
       legalPlays={legalPlays}
       availableCallCards={availableCallCards}
@@ -37,6 +40,7 @@ function App() {
       onOpenTutorial={() => setShowTutorial(true)}
       onCloseTutorial={() => setShowTutorial(false)}
       onNewHand={handleNewHand}
+      onSetRules={handleSetRules}
       showTutorial={showTutorial}
     />
   );
