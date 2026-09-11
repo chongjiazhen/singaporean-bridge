@@ -4,9 +4,26 @@
   box-sizing: border-box;
 }
 
+/* Tailwind's `dark:` variant follows prefers-color-scheme here, so the base
+   text colour has to follow it too - otherwise dark panels keep UA-black text. */
+:root {
+  color-scheme: light dark;
+  color: #111827;
+  background-color: #f8fafc;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color: #f3f4f6;
+    background-color: #0f172a;
+  }
+}
+
 body {
   margin: 0;
   min-height: 100vh;
+  color: inherit;
+  background-color: inherit;
 }
 
 #root {

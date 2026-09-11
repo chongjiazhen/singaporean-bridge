@@ -44,7 +44,7 @@ export function CardComponent({ card, faceUp = true, selected = false, onClick, 
 
   return (
     <div className={baseClasses} onClick={onClick}>
-      <div className="absolute inset-0 bg-white rounded-lg flex flex-col p-2">
+      <div className="absolute inset-0 bg-white rounded-lg flex flex-col p-1.5">
         {/* Top left rank and suit */}
         <div className="flex flex-col items-start">
           <span className={`${colorClass} font-bold leading-none`}>{card.rank}</span>
@@ -54,12 +54,6 @@ export function CardComponent({ card, faceUp = true, selected = false, onClick, 
         {/* Center suit symbol */}
         <div className="flex-1 flex items-center justify-center">
           <span className={`${colorClass} text-2xl ${size === 'small' ? 'text-lg' : size === 'large' ? 'text-4xl' : ''}`}>{suitSymbol}</span>
-        </div>
-
-        {/* Bottom right rank and suit (rotated 180) */}
-        <div className="flex flex-col items-end rotate-180">
-          <span className={`${colorClass} font-bold leading-none`}>{card.rank}</span>
-          <span className={`${colorClass} leading-none`}>{suitSymbol}</span>
         </div>
       </div>
     </div>

@@ -72,7 +72,7 @@ function StrainPicker<T extends Strain>({ options, selected, enabled, onSelect }
               : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
         >
           <span className={`font-bold text-xl ${strainClass(strain)}`}>{STRAIN_SYMBOLS[strain]}</span>
-          <span className="text-xs text-gray-500 dark:text-gray-400">{strain === 'NoTrump' ? 'No trump' : strain}</span>
+          <span className="text-xs text-gray-600 dark:text-gray-300">{strain === 'NoTrump' ? 'No trump' : strain}</span>
         </button>
       ))}
     </div>
@@ -131,18 +131,18 @@ function AuctionLog({ state }: { state: GameState }) {
     <div className="bg-white/70 dark:bg-gray-800/70 rounded-lg p-3 border border-gray-200 dark:border-gray-700 mb-3 text-sm">
       <div className="flex justify-between items-baseline mb-2">
         <span className="font-semibold text-gray-800 dark:text-gray-100">Auction</span>
-        <span className="text-xs text-gray-500 dark:text-gray-400">
+        <span className="text-xs text-gray-600 dark:text-gray-300">
           You don't have a partner yet. The winner will call one after the auction.
         </span>
       </div>
       {state.rules.wash && (
-        <div className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+        <div className="text-xs text-gray-600 dark:text-gray-300 mb-2">
           {state.washes > 0 && `Washed ${state.washes} ${state.washes === 1 ? 'deal' : 'deals'}. `}
           Every hand has at least {state.rules.washMinPoints} points; yours has {handPoints(state.hands[0])}.
         </div>
       )}
       {log.length === 0 ? (
-        <div className="text-gray-500 dark:text-gray-400">No bids yet. {PLAYER_NAMES[state.currentPlayer ?? 0]} must open.</div>
+        <div className="text-gray-600 dark:text-gray-300">No bids yet. {PLAYER_NAMES[state.currentPlayer ?? 0]} must open.</div>
       ) : (
         <ol className="flex flex-wrap gap-x-4 gap-y-1">
           {log.map((call, i) => (
@@ -195,7 +195,7 @@ function BiddingPanel({ state, legalBids, canPass, onBid, onPass }: {
               text-gray-800 dark:text-gray-200"
           >
             <span className="text-sm">{level}{STRAIN_SYMBOLS[strain]}</span>
-            <span className="text-[10px] text-gray-500 dark:text-gray-400">{tricksForLevel(level)} tricks</span>
+            <span className="text-[10px] text-gray-600 dark:text-gray-300">{tricksForLevel(level)} tricks</span>
           </button>
         ))}
       </div>
@@ -466,7 +466,7 @@ function HandHistory({ state }: { state: GameState }) {
       <div className="overflow-x-auto">
         <table className="w-full text-xs border-collapse">
           <thead>
-            <tr className="text-gray-500 dark:text-gray-400">
+            <tr className="text-gray-600 dark:text-gray-300">
               <th className="px-2 py-0.5 text-left">#</th>
               {PLAYERS.map(s => <th key={s} className="px-2 py-0.5">{PLAYER_NAMES[s]}</th>)}
               <th className="px-2 py-0.5 text-left">Won</th>
@@ -475,7 +475,7 @@ function HandHistory({ state }: { state: GameState }) {
           <tbody>
             {state.tricks.completed.map((t, i) => (
               <tr key={i} className="border-t border-gray-200 dark:border-gray-700">
-                <td className="px-2 py-0.5 text-gray-500 dark:text-gray-400">{i + 1}</td>
+                <td className="px-2 py-0.5 text-gray-600 dark:text-gray-300">{i + 1}</td>
                 {PLAYERS.map(s => cell(t, s))}
                 <td className="px-2 py-0.5 font-medium">{t.winner !== null ? PLAYER_NAMES[t.winner] : ''}</td>
               </tr>
@@ -483,7 +483,7 @@ function HandHistory({ state }: { state: GameState }) {
           </tbody>
         </table>
       </div>
-      <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-1">L = led the trick · ★ = called card · green = trick winner</div>
+      <div className="text-[10px] text-gray-600 dark:text-gray-300 mt-1">L = led the trick · ★ = called card · green = trick winner</div>
     </div>
   );
 }
@@ -496,7 +496,7 @@ function ResultPanel({ state, onNewHand }: { state: GameState; onNewHand: () => 
 
   return (
     <div className="fixed inset-0 flex items-center justify-center z-50 bg-black/50">
-      <div className={`bg-white dark:bg-gray-800 rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto text-center border-4 ${made ? 'border-green-500' : 'border-red-500'}`}>
+      <div className={`bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto text-center border-4 ${made ? 'border-green-500' : 'border-red-500'}`}>
         <h2 className={`text-3xl font-bold mb-3 ${made ? 'text-green-600' : 'text-red-600'}`}>
           {made ? 'CONTRACT MADE' : 'CONTRACT FAILED'}
         </h2>
@@ -536,26 +536,26 @@ function TutorialOverlay({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 flex items-center justify-center z-50 bg-black/50">
-      <div className="bg-white dark:bg-gray-800 rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[85vh] overflow-y-auto">
+      <div className="bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[85vh] overflow-y-auto shadow-2xl">
         <div className="flex justify-between items-start mb-4">
           <h2 className="text-2xl font-bold">How to Play Singaporean Floating Bridge</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-700" aria-label="Close">
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100" aria-label="Close">
             <X className="w-6 h-6" />
           </button>
         </div>
 
-        <ol className="space-y-3 text-left">
+        <ol className="space-y-4 text-left text-[15px] leading-relaxed">
           {steps.map((step, i) => (
             <li key={i} className="flex gap-3">
               <span className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-600 text-white text-sm flex items-center justify-center font-bold">
                 {i + 1}
               </span>
-              <span className="pt-0.5">{step}</span>
+              <span className="pt-0.5 text-gray-800 dark:text-gray-200">{step}</span>
             </li>
           ))}
         </ol>
 
-        <div className="mt-5 p-4 rounded-lg bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 text-sm">
+        <div className="mt-6 p-4 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-[15px] leading-relaxed text-gray-800 dark:text-gray-200">
           <div className="font-semibold mb-2">Worked example</div>
           <p>South bids 1♥. West bids 1♠. North bids 2♣. East passes. South bids 2♥. West passes. North passes.</p>
           <p className="mt-1">South wins the auction with 2♥: Hearts are trump and South's side needs 8 tricks. South does not hold K♥, so South calls K♥. North holds K♥, so North becomes South's partner. West and East defend.</p>
@@ -563,7 +563,7 @@ function TutorialOverlay({ onClose }: { onClose: () => void }) {
           <p className="mt-2 font-medium">Note: North was NOT South's partner during the auction. Partnerships only exist once a card is called.</p>
         </div>
 
-        <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+        <p className="mt-4 text-sm leading-relaxed text-gray-600 dark:text-gray-300">
           This implements one Singaporean ruleset. Local variants exist. Bidding uses Contract Bridge's book of six, but suits rank ♠ &gt; ♥ &gt; ♣ &gt; ♦ and there are no fixed partners, no dummy and no doubling.
         </p>
 
@@ -605,7 +605,7 @@ export function GameTable({
   );
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-green-50 to-blue-50 dark:from-gray-900 dark:to-gray-800 p-4">
+    <div className="min-h-screen bg-gradient-to-b from-green-50 to-blue-50 dark:from-gray-900 dark:to-gray-800 text-gray-900 dark:text-gray-100 p-4">
       <header className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-100">Singaporean Floating Bridge</h1>
