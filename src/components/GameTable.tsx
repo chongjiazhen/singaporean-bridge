@@ -410,7 +410,7 @@ function ContractBadge({ state }: { state: GameState }) {
     } else {
       const allies = p.defenders.filter(d => d !== 0 && known[d] === 'ally').map(d => PLAYER_NAMES[d]);
       if (allies.length === 0) {
-        side = `You defend against ${PLAYER_NAMES[p.declarer]}. Their partner is not yet known.`;
+        side = `You defend against ${PLAYER_NAMES[p.declarer]}. Their partner is not yet known: it could be either of the other two players, or nobody.`;
       } else if (isSolo(p)) {
         side = `You defend with ${allies.join(' and ')}. ${PLAYER_NAMES[p.declarer]} called their own card and plays alone.`;
       } else {
@@ -529,7 +529,7 @@ function TutorialOverlay({ onClose }: { onClose: () => void }) {
     'Deal: everyone receives 13 private cards. A hand scores A 4, K 3, Q 2, J 1, plus 1 for each card past the fourth in a suit. With the wash rule on (the default), if any hand has fewer than 4 points the deal is a wash: the cards are shuffled and redealt.',
     "Bid: a bid is a level from 1 to 7 plus a strain (a trump suit, or no trump). Your side must win level + 6 tricks, so 1♠ needs 7 and 7NT needs all 13. A higher level wins; at the same level NT > ♠ > ♥ > ♣ > ♦. You don't know who your partner is yet!",
     'The first bidder may not pass. The auction ends when only one bidder is left, and their bid becomes the contract.',
-    "Call a card: the declarer names a card they don't hold. Whoever has it becomes their partner. With hidden partner on (the default), only that player knows until the card is played. A declarer confident of winning alone may call a card they hold: they then have no partner and face all three, who may not realise until that card appears.",
+    "Call a card: the declarer names a card they don't hold. Whoever has it becomes their partner. With hidden partner on (the default), only that player knows until the card is played. That is the price of losing the auction: the declarer knows their side from the start, while each defender plays without knowing which of the other two is a fellow defender and which is the declarer's secret partner. A declarer confident of winning alone may call a card they hold: they then have no partner and face all three, who may not realise until that card appears.",
     "Play: in a suit contract the player to declarer's left leads; in no trump the declarer leads. Follow suit if you can. Trumps beat everything else; otherwise the highest card of the led suit wins, and the winner leads next.",
     'Check the contract: if the declarer and partner win at least level + 6 tricks, they succeed.',
   ];
@@ -560,6 +560,7 @@ function TutorialOverlay({ onClose }: { onClose: () => void }) {
           <p>South bids 1♥. West bids 1♠. North bids 2♣. East passes. South bids 2♥. West passes. North passes.</p>
           <p className="mt-1">South wins the auction with 2♥: Hearts are trump and South's side needs 8 tricks. South does not hold K♥, so South calls K♥. North holds K♥, so North becomes South's partner. West and East defend.</p>
           <p className="mt-1">West, on South's left, leads the first trick. With hidden partner on, only North knows the partnership until K♥ is played. Had South won with 2NT instead, South would lead.</p>
+          <p className="mt-1">Note what West and East give up by losing the auction: neither knows whether the other is a fellow defender or South's secret partner, while South and North both know their own side.</p>
           <p className="mt-2 font-medium">Note: North was NOT South's partner during the auction. Partnerships only exist once a card is called.</p>
         </div>
 
@@ -614,7 +615,7 @@ export function GameTable({
           </button>
           <label
             className="text-sm text-gray-600 dark:text-gray-300 flex items-center gap-1 cursor-pointer"
-            title="Only the holder of the called card knows they are partner until that card is played."
+            title="Only the holder of the called card knows they are partner until that card is played. The defenders do not know who is on their side either."
           >
             <input
               type="checkbox"
