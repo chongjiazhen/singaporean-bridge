@@ -8,6 +8,10 @@ interface CardProps {
   onClick?: () => void;
   className?: string;
   size?: 'small' | 'medium' | 'large';
+  dimmed?: boolean;
+  trump?: boolean;
+  lead?: boolean;
+  shake?: boolean;
 }
 
 const sizeClasses = {
@@ -16,12 +20,15 @@ const sizeClasses = {
   large: 'w-20 h-28 text-base',
 };
 
-export function CardComponent({ card, faceUp = true, selected = false, onClick, className = '', size = 'medium' }: CardProps) {
+export function CardComponent({ card, faceUp = true, selected = false, onClick, className = '', size = 'medium', dimmed = false, trump = false, lead = false, shake = false }: CardProps) {
   const baseClasses = `
     relative rounded-lg border-2 shadow-lg transition-all duration-200
     ${sizeClasses[size]}
-    ${selected ? 'ring-2 ring-yellow-400 -translate-y-2 shadow-xl' : ''}
-    ${onClick ? 'cursor-pointer hover:scale-105' : ''}
+    ${dimmed ? '' : selected ? 'ring-2 ring-yellow-400 -translate-y-2 shadow-xl' : ''}
+    ${dimmed ? 'opacity-40 grayscale' : ''}
+    ${dimmed ? (onClick ? 'cursor-pointer' : '') : onClick ? 'cursor-pointer hover:scale-105' : ''}
+    ${trump && faceUp ? 'border-amber-400' : ''}
+    ${shake ? 'card-shake' : ''}
     ${className}
   `;
 
@@ -55,6 +62,20 @@ export function CardComponent({ card, faceUp = true, selected = false, onClick, 
         <div className="flex-1 flex items-center justify-center">
           <span className={`${colorClass} text-2xl ${size === 'small' ? 'text-lg' : size === 'large' ? 'text-4xl' : ''}`}>{suitSymbol}</span>
         </div>
+
+        {/* Trump badge */}
+        {trump && (
+          <div className="absolute top-1 right-1 text-[8px] font-bold tracking-wide px-1 rounded bg-amber-400 text-gray-900">
+            TRUMP
+          </div>
+        )}
+
+        {/* Lead badge */}
+        {lead && (
+          <div className="absolute bottom-1 right-1 text-[9px] font-bold px-1 rounded bg-gray-800 text-white">
+            L
+          </div>
+        )}
       </div>
     </div>
   );

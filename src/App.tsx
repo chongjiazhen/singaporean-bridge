@@ -8,8 +8,12 @@ function App() {
     rules,
     showTutorial,
     setShowTutorial,
+    pauseAfterTrick,
+    awaitingContinue,
     handleNewHand,
     handleSetRules,
+    handleSetPauseAfterTrick,
+    handleContinue,
     handleHumanBid,
     handleHumanPass,
     handleHumanCallCard,
@@ -33,6 +37,8 @@ function App() {
       canPass={canPass}
       statusText={statusText}
       isHumanTurn={isHumanTurn}
+      pauseAfterTrick={pauseAfterTrick}
+      awaitingContinue={awaitingContinue}
       onBid={handleHumanBid}
       onPass={handleHumanPass}
       onCallCard={handleHumanCallCard}
@@ -41,6 +47,8 @@ function App() {
       onCloseTutorial={() => setShowTutorial(false)}
       onNewHand={handleNewHand}
       onSetRules={handleSetRules}
+      onSetPauseAfterTrick={handleSetPauseAfterTrick}
+      onContinue={handleContinue}
       showTutorial={showTutorial}
     />
   );

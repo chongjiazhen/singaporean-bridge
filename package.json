@@ -21,6 +21,7 @@
     "@vitejs/plugin-react": "^6.1.0",
     "@vitest/ui": "^5.0.0",
     "autoprefixer": "^10.5.4",
+    "jsdom": "^30.0.1",
     "lucide-react": "^1.40.0",
     "oxlint": "^1.79.0",
     "postcss": "^8.5.27",

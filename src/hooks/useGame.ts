@@ -25,6 +25,25 @@ function saveRules(rules: GameRules) {
     // Storage unavailable: the choice just lives for this page load.
   }
 }
+
+const PAUSE_AFTER_TRICK_KEY = 'singaporean-bridge.pauseAfterTrick';
+
+function loadPauseAfterTrick(): boolean {
+  try {
+    const raw = localStorage.getItem(PAUSE_AFTER_TRICK_KEY);
+    return raw !== null ? JSON.parse(raw) : true;
+  } catch {
+    return true;
+  }
+}
+
+function savePauseAfterTrick(on: boolean) {
+  try {
+    localStorage.setItem(PAUSE_AFTER_TRICK_KEY, JSON.stringify(on));
+  } catch {
+    // Storage unavailable: the choice just lives for this page load.
+  }
+}
 import { makeAiDecision } from '../ai/aiPlayer';
 
 const AI_PHASES: ReadonlySet<GameState['phase']> = new Set(['AUCTION', 'PARTNER_CALL', 'TRICK_PLAY']);
@@ -60,6 +79,17 @@ function humanLegalPlays(state: GameState): Card[] {
   return state.phase === 'TRICK_PLAY' && state.currentPlayer === 0 ? getLegalPlays(state, 0) : [];
 }
 
+// True once a trick has finished and is sitting on the table waiting for the
+// player to acknowledge it, so it doesn't get swept away unread.
+function computeAwaitingContinue(state: GameState, pauseAfterTrick: boolean, resumedAt: number): boolean {
+  return pauseAfterTrick
+    && state.phase === 'TRICK_PLAY'
+    && state.tricks.current !== null
+    && state.tricks.current.cards.length === 0
+    && state.tricks.completed.length > 0
+    && state.tricks.completed.length !== resumedAt;
+}
+
 /** Every card is callable, including your own (play alone); the UI asks for confirmation on those. */
 function humanCallableCards(state: GameState): Card[] {
   if (state.phase !== 'PARTNER_CALL' || state.currentPlayer !== 0) return [];
@@ -74,6 +104,12 @@ export function useGame() {
   const [rules, setRulesState] = useState<GameRules>(loadRules);
   const [state, setState] = useState<GameState>(() => startAuction(createInitialState(0, rules)));
   const [showTutorial, setShowTutorial] = useState(true);
+  const [pauseAfterTrick, setPauseAfterTrickState] = useState<boolean>(loadPauseAfterTrick);
+  // Index (into tricks.completed) up to which the player has acknowledged finished
+  // tricks; a completed count past this value means one is waiting to be continued.
+  const [resumedAt, setResumedAt] = useState<number>(0);
+
+  const awaitingContinue = computeAwaitingContinue(state, pauseAfterTrick, resumedAt);
 
   const handleSetRules = useCallback((change: Partial<GameRules>) => {
     setRulesState(prevRules => {
@@ -87,9 +123,11 @@ export function useGame() {
   }, []);
 
   // Drive AI turns one move at a time. A fresh trick after a completed one gets a
-  // longer pause so the finished trick stays visible.
+  // longer pause so the finished trick stays visible. While awaiting the player's
+  // continue, nothing advances: the finished trick stays on the table.
   useEffect(() => {
     if (!isAiTurn(state)) return;
+    if (awaitingContinue) return;
     const startingNewTrick = state.phase === 'TRICK_PLAY'
       && state.tricks.current?.cards.length === 0
       && state.tricks.completed.length > 0;
@@ -97,11 +135,21 @@ export function useGame() {
       setState(prev => advanceOneAi(prev));
     }, startingNewTrick ? 1200 : 600);
     return () => clearTimeout(timer);
-  }, [state]);
+  }, [state, awaitingContinue]);
 
   const handleNewHand = useCallback(() => {
+    setResumedAt(0);
     setState(prev => startAuction(setRules(startNextHand(prev), rules)));
   }, [rules]);
+
+  const handleSetPauseAfterTrick = useCallback((on: boolean) => {
+    setPauseAfterTrickState(on);
+    savePauseAfterTrick(on);
+  }, []);
+
+  const handleContinue = useCallback(() => {
+    setResumedAt(state.tricks.completed.length);
+  }, [state.tricks.completed.length]);
 
   const handleHumanBid = useCallback((level: number, strain: Strain) => {
     setState(prev => humanLegalBids(prev).some(b => b.level === level && b.strain === strain)
@@ -120,24 +168,31 @@ export function useGame() {
   }, []);
 
   const handleHumanPlayCard = useCallback((card: Card) => {
-    setState(prev => humanLegalPlays(prev).some(c => cardsEqual(c, card))
-      ? playCard(prev, 0, card)
-      : prev);
-  }, []);
+    setState(prev => {
+      if (computeAwaitingContinue(prev, pauseAfterTrick, resumedAt)) return prev;
+      return humanLegalPlays(prev).some(c => cardsEqual(c, card))
+        ? playCard(prev, 0, card)
+        : prev;
+    });
+  }, [pauseAfterTrick, resumedAt]);
 
   return {
     state,
     rules,
     showTutorial,
     setShowTutorial,
+    pauseAfterTrick,
+    awaitingContinue,
     handleNewHand,
     handleSetRules,
+    handleSetPauseAfterTrick,
+    handleContinue,
     handleHumanBid,
     handleHumanPass,
     handleHumanCallCard,
     handleHumanPlayCard,
     legalBids: humanLegalBids(state),
-    legalPlays: humanLegalPlays(state),
+    legalPlays: awaitingContinue ? [] : humanLegalPlays(state),
     availableCallCards: humanCallableCards(state),
     canPass: canPass(state, 0),
     statusText: getGameStatusText(state),

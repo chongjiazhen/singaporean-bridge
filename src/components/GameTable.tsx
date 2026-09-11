@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { CardComponent } from './Card';
 import type { GameState, Card, Suit, Strain, PlayerIndex, Bid, GameRules, Trick, Contract } from '../engine/types';
 import {
@@ -6,6 +7,7 @@ import {
   MIN_LEVEL, MAX_LEVEL, tricksForLevel, cardsEqual, handPoints, isSolo, MIN_WASH_POINTS, MAX_WASH_POINTS,
 } from '../engine/types';
 import { countTricksWon, getSideKnowledge, isPartnershipPublic } from '../engine/gameEngine';
+import { trickVerdictText } from '../engine/trickEvaluator';
 import { X, HelpCircle } from 'lucide-react';
 
 interface GameTableProps {
@@ -28,6 +30,12 @@ interface GameTableProps {
   onNewHand: () => void;
   onSetRules: (rules: Partial<GameRules>) => void;
   showTutorial: boolean;
+  /** Hold a finished trick on the table until the player presses Next. */
+  pauseAfterTrick: boolean;
+  /** A finished trick is being held: no legal plays, AI paused. */
+  awaitingContinue: boolean;
+  onSetPauseAfterTrick: (pause: boolean) => void;
+  onContinue: () => void;
 }
 
 const cardKey = (c: Card) => `${c.rank}-${c.suit}`;
@@ -79,7 +87,10 @@ function StrainPicker<T extends Strain>({ options, selected, enabled, onSelect }
   );
 }
 
-function PlayerArea({ name, hand, isHuman, faceUp, position, playable, onCardClick }: {
+function PlayerArea({
+  name, hand, isHuman, faceUp, position, playable, onCardClick,
+  dimIllegal = false, onIllegalClick, shakenKey = null, trumpSuit = null, hint,
+}: {
   name: string;
   hand: Card[];
   isHuman: boolean;
@@ -87,19 +98,43 @@ function PlayerArea({ name, hand, isHuman, faceUp, position, playable, onCardCli
   position: 'north' | 'south' | 'west' | 'east';
   playable?: Set<string>;
   onCardClick?: (card: Card) => void;
+  /** Grey out the cards that are not legal right now, and make them tap-to-explain. */
+  dimIllegal?: boolean;
+  onIllegalClick?: (card: Card) => void;
+  /** Key of the card currently playing the "you can't play that" shake. */
+  shakenKey?: string | null;
+  /** Marks trumps in this hand; null in a no-trump contract. */
+  trumpSuit?: Suit | null;
+  /** Rendered just above the hand - the follow-suit coaching line. */
+  hint?: ReactNode;
 }) {
   const isPlayable = (c: Card) => playable?.has(cardKey(c)) ?? false;
-  const renderCard = (card: Card, size: 'small' | 'medium') => (
-    <CardComponent
-      key={cardKey(card)}
-      card={card}
-      faceUp={faceUp}
-      selected={isPlayable(card)}
-      // Only legal cards get a click handler: the engine throws on illegal plays.
-      onClick={onCardClick && isPlayable(card) ? () => onCardClick(card) : undefined}
-      size={size}
-    />
-  );
+  const renderCard = (card: Card, size: 'small' | 'medium') => {
+    const key = cardKey(card);
+    const legal = isPlayable(card);
+    const dimmed = dimIllegal && !legal;
+    return (
+      <CardComponent
+        key={key}
+        card={card}
+        faceUp={faceUp}
+        selected={legal}
+        dimmed={dimmed}
+        trump={faceUp && trumpSuit !== null && card.suit === trumpSuit}
+        shake={shakenKey === key}
+        // Only legal cards reach the engine: it throws on illegal plays. An illegal card
+        // instead flashes the hint that explains why it cannot be played.
+        onClick={
+          onCardClick && legal
+            ? () => onCardClick(card)
+            : dimmed && onIllegalClick
+              ? () => onIllegalClick(card)
+              : undefined
+        }
+        size={size}
+      />
+    );
+  };
 
   if (position === 'north' || position === 'south') {
     return (
@@ -107,6 +142,7 @@ function PlayerArea({ name, hand, isHuman, faceUp, position, playable, onCardCli
         <div className="text-sm font-medium text-gray-600 dark:text-gray-300 text-center">
           {name} {isHuman && '(YOU)'}
         </div>
+        {hint}
         <div className="flex gap-1 flex-wrap justify-center max-w-full">
           {hand.map(card => renderCard(card, position === 'south' ? 'medium' : 'small'))}
         </div>
@@ -316,13 +352,33 @@ function PartnerCallPanel({ contract, hiddenPartner, hand, availableCallCards, o
   );
 }
 
-function TrickArea({ state }: { state: GameState }) {
+function TrickArea({ state, awaitingContinue, onContinue }: {
+  state: GameState;
+  awaitingContinue: boolean;
+  onContinue: () => void;
+}) {
+  // Space/Enter is the same button as "Next trick", but only while one is waiting.
+  useEffect(() => {
+    if (!awaitingContinue) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== ' ' && e.key !== 'Enter' && e.key !== 'Spacebar') return;
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return;
+      e.preventDefault();
+      onContinue();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [awaitingContinue, onContinue]);
+
   if (state.phase !== 'TRICK_PLAY' && state.phase !== 'HAND_RESULT') return null;
 
   const current = state.tricks.current;
   const lastCompleted = state.tricks.completed[state.tricks.completed.length - 1];
   // Keep the finished trick on the table until the next lead so the last card is visible.
   const shown = current && current.cards.length > 0 ? current : lastCompleted ?? current;
+  const trumpSuit = state.contract?.trumpSuit ?? null;
   const slot = (p: PlayerIndex) => {
     const played = shown?.cards.find(c => c.player === p);
     return (
@@ -332,12 +388,19 @@ function TrickArea({ state }: { state: GameState }) {
             card={played.card}
             faceUp={true}
             size="medium"
+            trump={trumpSuit !== null && played.card.suit === trumpSuit}
+            lead={shown?.leader === p}
             className={shown?.winner === p && shown.cards.length === 4 ? 'ring-2 ring-green-500' : ''}
           />
         )}
       </div>
     );
   };
+
+  const verdict = shown && shown.cards.length === 4 ? trickVerdictText(shown) : null;
+  const legend = trumpSuit
+    ? 'Follow the led suit if you can · trump beats every other suit · otherwise the highest card of the led suit wins · the winner leads next'
+    : 'Follow the led suit if you can · the highest card of the led suit wins · the winner leads next';
 
   const p = state.partnerships;
   const publicSides = isPartnershipPublic(state);
@@ -354,6 +417,23 @@ function TrickArea({ state }: { state: GameState }) {
           {slot(3)}
         </div>
         {slot(0)}
+
+        {verdict && (
+          <p className="max-w-96 text-center text-sm text-gray-700 dark:text-gray-200">{verdict}</p>
+        )}
+
+        {awaitingContinue && (
+          <button
+            onClick={onContinue}
+            className="px-4 py-2 rounded-lg bg-blue-600 text-white font-medium shadow hover:bg-blue-700 transition-colors"
+          >
+            Next trick →
+          </button>
+        )}
+
+        {state.phase === 'TRICK_PLAY' && (
+          <p className="max-w-96 text-center text-xs text-gray-500 dark:text-gray-400">{legend}</p>
+        )}
       </div>
 
       <div className="absolute bottom-2 left-2 text-sm text-gray-600 dark:text-gray-300">
@@ -598,9 +678,52 @@ export function GameTable({
   onNewHand,
   onSetRules,
   showTutorial,
+  pauseAfterTrick,
+  awaitingContinue,
+  onSetPauseAfterTrick,
+  onContinue,
 }: GameTableProps) {
+  // An illegal card shakes for the length of the CSS animation and flashes the hint line.
+  const [shakenKey, setShakenKey] = useState<string | null>(null);
+  const shakeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (shakeTimer.current !== null) clearTimeout(shakeTimer.current); }, []);
+  const flashIllegal = (card: Card) => {
+    if (shakeTimer.current !== null) clearTimeout(shakeTimer.current);
+    setShakenKey(cardKey(card));
+    shakeTimer.current = setTimeout(() => {
+      setShakenKey(null);
+      shakeTimer.current = null;
+    }, 400);
+  };
+
   const legalPlayKeys = new Set(legalPlays.map(cardKey));
   const humanCalling = state.phase === 'PARTNER_CALL' && isHumanTurn && state.contract;
+
+  // The human must choose a card right now: dim the illegal ones and coach the choice.
+  const humanPlaying = state.phase === 'TRICK_PLAY' && isHumanTurn && legalPlays.length > 0;
+  const trumpSuit = state.contract?.trumpSuit ?? null;
+  const ledSuit = state.tricks.current?.ledSuit ?? null;
+  const suitMark = (s: Suit) => <span className={strainClass(s)}>{SUIT_SYMBOLS[s]}</span>;
+
+  let hintText: ReactNode = null;
+  if (humanPlaying) {
+    if (ledSuit === null) {
+      hintText = <>You lead - any card.</>;
+    } else if (humanHand.some(c => c.suit === ledSuit)) {
+      hintText = <>{suitMark(ledSuit)} was led - you must follow with a {suitMark(ledSuit)}.</>;
+    } else {
+      const canRuff = trumpSuit !== null && humanHand.some(c => c.suit === trumpSuit);
+      hintText = <>You have no {suitMark(ledSuit)} - you may play anything{canRuff ? ' (a trump beats the led suit)' : ''}.</>;
+    }
+  }
+  const hint = hintText && (
+    <p
+      className={`text-sm text-gray-700 dark:text-gray-200 px-2 py-0.5 rounded transition-all
+        ${shakenKey !== null ? 'font-semibold ring-2 ring-amber-400' : ''}`}
+    >
+      {hintText}
+    </p>
+  );
   const hiddenHand = (p: PlayerIndex, position: 'north' | 'west' | 'east') => (
     <PlayerArea name={PLAYER_NAMES[p]} hand={state.hands[p]} isHuman={false} faceUp={false} position={position} />
   );
@@ -655,6 +778,17 @@ export function GameTable({
               <span className="text-xs text-amber-600 dark:text-amber-400">(from next hand)</span>
             )}
           </label>
+          <label
+            className="text-sm text-gray-600 dark:text-gray-300 flex items-center gap-1 cursor-pointer"
+            title="Hold the finished trick on the table until you press Next. Recommended while learning."
+          >
+            <input
+              type="checkbox"
+              checked={pauseAfterTrick}
+              onChange={e => onSetPauseAfterTrick(e.target.checked)}
+            />
+            Pause after each trick
+          </label>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-sm text-gray-600 dark:text-gray-300">{statusText}</span>
@@ -668,7 +802,7 @@ export function GameTable({
         <div className="flex flex-1 items-center justify-center w-full max-w-4xl relative">
           <div className="w-full flex flex-row items-center justify-between">
             {hiddenHand(1, 'west')}
-            <TrickArea state={state} />
+            <TrickArea state={state} awaitingContinue={awaitingContinue} onContinue={onContinue} />
             {hiddenHand(3, 'east')}
           </div>
         </div>
@@ -681,6 +815,11 @@ export function GameTable({
           position="south"
           playable={legalPlayKeys}
           onCardClick={onPlayCard}
+          dimIllegal={humanPlaying}
+          onIllegalClick={flashIllegal}
+          shakenKey={shakenKey}
+          trumpSuit={trumpSuit}
+          hint={hint}
         />
 
         <div className="w-full max-w-2xl mt-4">
