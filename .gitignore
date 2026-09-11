@@ -3,3 +3,6 @@ dist
 .DS_Store
 *.local
 .vitest
+
+# Agent tracker queue - local, not history (see spec/ai.md)
+.agents/
