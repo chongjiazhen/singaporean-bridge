@@ -53,7 +53,7 @@ describe('End-of-hand summary', () => {
     const s = playWholeHand(false);
     expect(s.phase).toBe('HAND_RESULT');
     const html = render(s);
-    expect(html).toMatch(/CONTRACT (MADE|FAILED)/);
+    expect(html).toMatch(/Contract (MADE|FAILED)/);
     // One body row per trick.
     const rows = html.split('<tbody>')[1].split('</tbody>')[0].match(/<tr/g) ?? [];
     expect(rows).toHaveLength(13);
@@ -62,6 +62,21 @@ describe('End-of-hand summary', () => {
     expect((html.match(/<em>pass<\/em>/g) ?? []).length).toBe(passes);
     // Called card is starred exactly once.
     expect((html.match(/title="called card"/g) ?? []).length).toBe(1);
+  });
+
+  it('headlines South\'s result, not the declarer\'s', () => {
+    const s = playWholeHand(false);
+    const { declarer, partner } = s.partnerships!;
+    const southOnDeclarerSide = declarer === 0 || partner === 0;
+    const southWon = s.result!.contractMade === southOnDeclarerSide;
+    const html = render(s);
+    expect(html).toContain(southWon ? 'YOU WON' : 'YOU LOST');
+    expect(html).not.toContain(southWon ? 'YOU LOST' : 'YOU WON');
+    if (!southOnDeclarerSide) {
+      // Defending South is told what their own side won, not only the declarer's count.
+      const southSide = 13 - s.result!.tricksWonByDeclarer;
+      expect(html).toContain(`Your side won: <strong>${southSide} /`);
+    }
   });
 });
 

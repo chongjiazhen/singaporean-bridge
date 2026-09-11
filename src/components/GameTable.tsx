@@ -574,12 +574,29 @@ function ResultPanel({ state, onNewHand }: { state: GameState; onNewHand: () => 
   const made = state.result.contractMade;
   const { declarer, partner } = state.partnerships;
 
+  // South is the human seat: lead with their result, not the declarer's.
+  const youDeclared = declarer === 0;
+  const onDeclarerSide = youDeclared || partner === 0;
+  const youWon = made === onDeclarerSide;
+  const yourSide = youDeclared
+    ? (partner === declarer ? 'You played alone' : `You and ${PLAYER_NAMES[partner]}`)
+    : onDeclarerSide
+      ? `You were ${PLAYER_NAMES[declarer]}'s secret partner`
+      : `You defended against ${PLAYER_NAMES[declarer]}`;
+  const yourTricks = onDeclarerSide
+    ? state.result.tricksWonByDeclarer
+    : state.tricks.completed.length - state.result.tricksWonByDeclarer;
+
   return (
     <div className="fixed inset-0 flex items-center justify-center z-50 bg-black/50">
-      <div className={`bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto text-center border-4 ${made ? 'border-green-500' : 'border-red-500'}`}>
-        <h2 className={`text-3xl font-bold mb-3 ${made ? 'text-green-600' : 'text-red-600'}`}>
-          {made ? 'CONTRACT MADE' : 'CONTRACT FAILED'}
+      <div className={`bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto text-center border-4 ${youWon ? 'border-green-500' : 'border-red-500'}`}>
+        <h2 className={`text-3xl font-bold mb-1 ${youWon ? 'text-green-600' : 'text-red-600'}`}>
+          {youWon ? 'YOU WON' : 'YOU LOST'}
         </h2>
+        <p className="mb-3 text-sm text-gray-600 dark:text-gray-300">
+          {yourSide}. Contract {made ? 'MADE' : 'FAILED'}
+          {onDeclarerSide ? '.' : made ? ': the declarer got there.' : ': you held them short.'}
+        </p>
 
         <div className="space-y-1 mb-4">
           <p>Contract: <BidText bid={state.contract} /> by <strong>{PLAYER_NAMES[declarer]}</strong> ({contractTerms(state.contract)})</p>
@@ -588,7 +605,16 @@ function ResultPanel({ state, onNewHand }: { state: GameState; onNewHand: () => 
           ) : (
             <p>Partner: <strong>{PLAYER_NAMES[partner]}</strong>{state.calledCard && <> (held <CardText card={state.calledCard} />)</>}</p>
           )}
-          <p>Tricks won: <strong>{state.result.tricksWonByDeclarer} / {state.contract.tricksRequired}</strong></p>
+          {onDeclarerSide ? (
+            <p>Your side won: <strong>{yourTricks} / {state.contract.tricksRequired}</strong> needed</p>
+          ) : (
+            <>
+              <p>Your side won: <strong>{yourTricks} / {state.tricks.completed.length - state.contract.tricksRequired + 1}</strong> needed to break the contract</p>
+              <p className="text-sm text-gray-600 dark:text-gray-300">
+                {PLAYER_NAMES[declarer]}'s side won {state.result.tricksWonByDeclarer}.
+              </p>
+            </>
+          )}
         </div>
 
         <HandHistory state={state} />
