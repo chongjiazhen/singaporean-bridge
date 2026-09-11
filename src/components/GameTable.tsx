@@ -390,7 +390,7 @@ function TrickArea({ state, awaitingContinue, onContinue }: {
             size="medium"
             trump={trumpSuit !== null && played.card.suit === trumpSuit}
             lead={shown?.leader === p}
-            className={shown?.winner === p && shown.cards.length === 4 ? 'ring-2 ring-green-500' : ''}
+            className={shown?.winner === p && shown.cards.length === 4 ? 'ring-2 ring-green-500 animate-bounce' : ''}
           />
         )}
       </div>
