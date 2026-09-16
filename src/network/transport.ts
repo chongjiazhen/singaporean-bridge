@@ -271,8 +271,13 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
     handlers.onGameStateCb?.(canonicalize<GameState>(newState));
   };
 
-  const applyCommand = (peerId: string, frame: Frame) => {
-    const seat = assignSeats(opts.hostSeat ?? 0, arrivalOrder).get(peerId);
+  const applyCommand = (
+    peerId: string,
+    frame: Frame,
+    explicitSeat?: PlayerIndex,
+  ) => {
+    const seat: PlayerIndex | undefined = explicitSeat ??
+      assignSeats(opts.hostSeat ?? 0, arrivalOrder).get(peerId);
     if (seat === undefined) {
       handlers.onCommandCb?.(frame);
       return;
@@ -310,21 +315,21 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
     },
     sendBid(level, strain) {
       if (opts.isHost) {
-        applyCommand('host', { type: 'BID', data: { level, strain } } as Frame);
+        applyCommand('host', { type: 'BID', data: { level, strain } } as Frame, opts.hostSeat ?? 0);
         return;
       }
       void broker.sendToPeer({ type: 'BID', data: { level, strain } });
     },
     sendCallPartner(card) {
       if (opts.isHost) {
-        applyCommand('host', { type: 'CALL_PARTNER', data: { card } } as Frame);
+        applyCommand('host', { type: 'CALL_PARTNER', data: { card } } as Frame, opts.hostSeat ?? 0);
         return;
       }
       void broker.sendToPeer({ type: 'CALL_PARTNER', data: { card } });
     },
     sendPlayCard(card) {
       if (opts.isHost) {
-        applyCommand('host', { type: 'PLAY_CARD', data: { card } } as Frame);
+        applyCommand('host', { type: 'PLAY_CARD', data: { card } } as Frame, opts.hostSeat ?? 0);
         return;
       }
       void broker.sendToPeer({ type: 'PLAY_CARD', data: { card } });
