@@ -77,6 +77,10 @@ describe('deserializeFrame rejects malformed input', () => {
     expect(() => deserializeFrame(JSON.stringify({ data: {} }))).toThrow();
   });
 
+  it('throws when data is missing', () => {
+    expect(() => deserializeFrame(JSON.stringify({ type: 'BID' }))).toThrow();
+  });
+
   it('throws when type is not a string', () => {
     expect(() => deserializeFrame(JSON.stringify({ type: 7, data: {} }))).toThrow();
   });

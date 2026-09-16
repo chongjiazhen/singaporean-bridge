@@ -36,8 +36,8 @@ export function serializeFrame(frame: Frame): string {
 
 /**
  * Inverse of {@link serializeFrame}. Throws on any malformed input rather than
- * silently returning garbage: bad JSON, a missing type, a non-string type, or an
- * unknown frame type.
+ * silently returning garbage: bad JSON, a missing type or data, a non-string
+ * type, or an unknown frame type.
  */
 export function deserializeFrame(value: string): Frame {
   let parsed: unknown;
@@ -50,7 +50,8 @@ export function deserializeFrame(value: string): Frame {
     parsed === null ||
     typeof parsed !== 'object' ||
     !('type' in parsed) ||
-    typeof (parsed as { type: unknown }).type !== 'string'
+    typeof (parsed as { type: unknown }).type !== 'string' ||
+    !('data' in parsed)
   ) {
     throw new Error('deserializeFrame: missing or non-string type');
   }
