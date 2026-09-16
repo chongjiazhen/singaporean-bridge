@@ -7,7 +7,7 @@ import {
   deserializeFrame,
   isInboundCommandType,
   canonicalize,
-} from '../../src/network/protocol';
+} from '../src/network/protocol';
 
 /** A minimal card shape for payloads. */
 const sampleCard: Card = { rank: 'SH', suit: 'RED', value: 1 } as Card;
