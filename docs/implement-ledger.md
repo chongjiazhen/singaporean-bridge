@@ -21,6 +21,8 @@ Exports: SEASTORAGE_PREFIX, seatStorageKey, rememberSeat, readSeat, RECONNECT_WI
 Acceptance: `vitest run tests/transport.test.ts` PASS (10) · `tsc --noEmit` clean · full `vitest run` all 121 green.
 Notes: InMemoryBroker placeholder + TransportBroker interface + assignSeats() (arrival-order, lexicographic tie). Host runs authoritative engine (makeBid/callPartner/playCard), broadcasts GAME_STATE, ERROR on rejection. Peer renders canonicalized snapshots + sends commands. Subagent failed twice on spec; wrote inline.
 
+## Task 4: transport.ts — done + reviewed (approved by fresh reviewer, no game-logic leak). Final commit `47e44db`.
+
 ## Task 5: useGame — pending
 Acceptance: `vitest run tests/hooks/useGame.test.ts` PASS; `tsc --noEmit` clean
 
