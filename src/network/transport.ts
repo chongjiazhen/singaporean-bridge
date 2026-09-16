@@ -28,6 +28,7 @@ import {
   makeBid,
   callPartner,
   playCard,
+  pass,
   createInitialState,
 } from '../engine/gameEngine';
 
@@ -88,12 +89,14 @@ export interface Transport {
   onPeerAssigned(cb: (info: { seat: PlayerIndex; peerId: string }) => void): void;
   /** Receive a non-fatal error reason (host mode rejects). */
   onError(cb: (reason: string) => void): void;
-  /** Issue a bid from the current seat (peer mode). */
+  /** Bid from the current seat (peer: forward to host; host: apply locally). */
   sendBid(level: number, strain: Strain): void;
-  /** Ask the current seat's partner to play a card (peer mode). */
+  /** Ask the current seat's partner to play a card (peer: forward to host; host: apply locally). */
   sendCallPartner(card: Card): void;
-  /** Play a card from the current seat (peer mode). */
+  /** Play a card from the current seat (peer: forward to host; host: apply locally). */
   sendPlayCard(card: Card): void;
+  /** Host-driven only: apply a pass for a seat and broadcast the resulting snapshot. */
+  sendPass(seat?: PlayerIndex): void;
   /** Receive any non-GAME_STATE frame forwarded from the broker (both modes). */
   onCommand(cb: (frame: Frame) => void): void;
   /** Tear down the transport and its broker handle. */
@@ -255,6 +258,40 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
 
   let currentSeat: PlayerIndex | undefined;
 
+  // Authoritative engine state (host mode). Every applied command broadcasts a
+  // fresh snapshot so host and every peer render the same source of truth.
+  let state: EngineState = createInitialState();
+  const peers = new Set<string>();
+
+  const broadcastState = (newState: EngineState) => {
+    const snapshot: Frame = { type: 'GAME_STATE', data: canonicalize(newState) };
+    for (const peerId of peers) {
+      void broker.deliverToPeer(peerId, snapshot);
+    }
+    handlers.onGameStateCb?.(canonicalize<GameState>(newState));
+  };
+
+  const applyCommand = (peerId: string, frame: Frame) => {
+    const seat = assignSeats(opts.hostSeat ?? 0, arrivalOrder).get(peerId);
+    if (seat === undefined) {
+      handlers.onCommandCb?.(frame);
+      return;
+    }
+    if (!isInboundCommandType(frame.type)) {
+      handlers.onCommandCb?.(frame);
+      return;
+    }
+    try {
+      state = applyInboundCommand(state, seat, frame);
+      broadcastState(state);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      handlers.onErrorCb?.(reason);
+      const rejected: Frame = { type: 'ERROR', data: { reason, commandId: peerId } };
+      void broker.deliverToPeer(peerId, rejected);
+    }
+  };
+
   const transport: Transport = {
     get seat() {
       return currentSeat;
@@ -272,56 +309,66 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
       handlers.onErrorCb = cb;
     },
     sendBid(level, strain) {
+      if (opts.isHost) {
+        applyCommand('host', { type: 'BID', data: { level, strain } } as Frame);
+        return;
+      }
       void broker.sendToPeer({ type: 'BID', data: { level, strain } });
     },
     sendCallPartner(card) {
+      if (opts.isHost) {
+        applyCommand('host', { type: 'CALL_PARTNER', data: { card } } as Frame);
+        return;
+      }
       void broker.sendToPeer({ type: 'CALL_PARTNER', data: { card } });
     },
     sendPlayCard(card) {
+      if (opts.isHost) {
+        applyCommand('host', { type: 'PLAY_CARD', data: { card } } as Frame);
+        return;
+      }
       void broker.sendToPeer({ type: 'PLAY_CARD', data: { card } });
     },
     onCommand(cb) {
       handlers.onCommandCb = cb;
+    },
+    // The host drives passing for any seat; peers never send a pass frame
+    // (per spec, pass is host-authoritative with no wire frame).
+    sendPass(reqSeat?: PlayerIndex) {
+      if (!opts.isHost) return;
+      const seat: PlayerIndex = reqSeat ?? (opts.hostSeat ?? 0);
+      try {
+        state = pass(state, seat);
+        broadcastState(state);
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        handlers.onErrorCb?.(reason);
+      }
     },
     destroy() {
       broker.disconnect();
     },
   };
 
+  const arrivalOrder = new Map<string, number>();
+
   void broker.connect(opts.roomKey).then(() => {
     if (opts.isHost) {
       void broker.createRoom();
       // Host seats incoming peers by arrival order.
-      let arrivalOrder = new Map<string, number>();
-      let state = createInitialState();
       broker.onPeerConnect((peerId) => {
         if (!arrivalOrder.has(peerId)) {
           arrivalOrder.set(peerId, arrivalOrder.size + 1);
+          peers.add(peerId);
         }
-        const seats = assignSeats(opts.hostSeat ?? 0, arrivalOrder);
-        const seat = seats.get(peerId);
+        const seat = assignSeats(opts.hostSeat ?? 0, arrivalOrder).get(peerId);
         if (seat !== undefined) {
           currentSeat = seat;
           handlers.onPeerAssignedCb?.({ seat, peerId });
         }
       });
       broker.onInboundFrame((peerId, frame) => {
-        const seat = assignSeats(opts.hostSeat ?? 0, arrivalOrder).get(peerId);
-        if (seat === undefined) return;
-        if (!isInboundCommandType(frame.type)) {
-          handlers.onCommandCb?.(frame);
-          return;
-        }
-        try {
-          state = applyInboundCommand(state, seat, frame);
-          const snapshot: Frame = { type: 'GAME_STATE', data: canonicalize(state) };
-          void broker.deliverToPeer(peerId, snapshot);
-        } catch (err) {
-          const reason = err instanceof Error ? err.message : String(err);
-          handlers.onErrorCb?.(reason);
-          const rejected: Frame = { type: 'ERROR', data: { reason, commandId: peerId } };
-          void broker.deliverToPeer(peerId, rejected);
-        }
+        applyCommand(peerId, frame);
       });
     } else {
       // Peer mode: remember seat, render snapshots, forward commands.
