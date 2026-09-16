@@ -30,6 +30,7 @@ import {
   playCard,
   pass,
   createInitialState,
+  startAuction,
 } from '../engine/gameEngine';
 
 /**
@@ -360,6 +361,8 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
   void broker.connect(opts.roomKey).then(() => {
     if (opts.isHost) {
       void broker.createRoom();
+      // Move the authoritative state into the auction before any bid can apply.
+      state = startAuction(state);
       // Host seats incoming peers by arrival order.
       broker.onPeerConnect((peerId) => {
         if (!arrivalOrder.has(peerId)) {
