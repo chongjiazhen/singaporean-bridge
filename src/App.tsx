@@ -1,8 +1,7 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { GameTable } from './components/GameTable';
 import { useGame } from './hooks/useGame';
 import { makeTransportBroker } from './network/roomBroker';
-import type { TransportBroker } from './network/transport';
 import './index.css';
 
 /**
@@ -18,17 +17,14 @@ function parseJoinKey(): string | null {
 }
 
 /**
- * The game host. Renders the table driven by the transport in host mode and
- * shows a "Create Game" button that mints a new room, appends its invite key
- * to the location, and remounts this component as the new host.
+ * The game host. Renders the table driven by the transport in host mode.
  */
 function GameHost({
   roomKey,
-  broker,
 }: {
-  roomKey: string | null;
-  broker: TransportBroker;
+  roomKey: string;
 }) {
+  const broker = makeTransportBroker(roomKey, true, 0);
   const game = useGame({ roomKey, isHost: true, broker });
 
   return (
@@ -66,11 +62,10 @@ function GameHost({
  */
 function GamePeer({
   roomKey,
-  broker,
 }: {
   roomKey: string;
-  broker: TransportBroker;
 }) {
+  const broker = makeTransportBroker(roomKey, false);
   const game = useGame({ roomKey, isHost: false, broker });
 
   return (
@@ -106,13 +101,17 @@ function GamePeer({
  * mints a room, appends its invite key to the location, and remounts the same
  * component instance as the host.
  */
-function GameSolo({ broker }: { broker: TransportBroker }) {
+function GameSolo() {
   const game = useGame();
   const [roomKey, setRoomKey] = useState<string | null>(null);
 
   const onCreate = useCallback(async () => {
     try {
-      const { roomKey: key } = await broker.createRoom();
+      // Create a host broker to mint the room
+      const hostBroker = makeTransportBroker('', true, 0);
+      const { roomKey: key } = await hostBroker.createRoom();
+      hostBroker.disconnect();
+      
       setRoomKey(key);
       if (typeof window !== 'undefined') {
         window.location.hash = `join/${key}`;
@@ -120,12 +119,12 @@ function GameSolo({ broker }: { broker: TransportBroker }) {
     } catch (err) {
       console.error('Failed to create game', err);
     }
-  }, [broker]);
+  }, []);
 
   // Remount on the new key swaps the hook variant cleanly (solo -> host) with a
   // fresh hook context, so React's hook-order invariant holds.
   if (roomKey) {
-    return <GameHost key={`host-${roomKey}`} roomKey={roomKey} broker={broker} />;
+    return <GameHost key={`host-${roomKey}`} roomKey={roomKey} />;
   }
 
   return (
@@ -169,12 +168,11 @@ function GameSolo({ broker }: { broker: TransportBroker }) {
 function App() {
   // Read the join key once from the URL; it is only relevant on mount.
   const joinKey = useState(() => parseJoinKey())[0];
-  const broker = useMemo<TransportBroker>(() => makeTransportBroker(), []);
 
   if (joinKey) {
-    return <GamePeer key={joinKey} roomKey={joinKey} broker={broker} />;
+    return <GamePeer key={joinKey} roomKey={joinKey} />;
   }
-  return <GameSolo broker={broker} />;
+  return <GameSolo />;
 }
 
 export default App;

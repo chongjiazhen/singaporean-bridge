@@ -61,6 +61,47 @@ src/network/
 - **peer** — each browser establishes a **per-player ordered channel** to the host. The broker delivers that player's frames strictly in arrival order (Q6). The peer stores its seat index in `sessionStorage`; on reconnect it sends its remembered seat so the host reclaims it (Q4).
 - **protocol** — the wire format. No sequence numbers (Q5); ordering is broker-provided per channel.
 
+## Broker selection (resolved)
+
+**Decision (peer-backed, managed).** The broker is **PeerJS, consumed via its managed PeerServer Cloud
+service** (`peerjs.com`; client `peerjs` npm latest `1.5.5`, server `peer` npm `1.0.2`). Chosen because it
+is the only candidate satisfying all three hard constraints:
+
+- **Static repo preserved.** PeerJS is a *hosted* broker (`0.peerjs.com:443`); the repo adds only the
+  `peerjs` **browser SDK** and ships **no** server. The `docs/`-only GitHub Pages deploy is unchanged.
+  (Self-hosted `peer`/PeerServer, the offline `rtcmultiplayer`, and the `livepeer` video-CDN platform were
+  rejected; `webrtcadapter`/`peergraph` were unverified here.) See
+  `docs/re research/2026-09-16-peer-broker-selection.md`.
+- **Data plane stays direct.** PeerJS wraps WebRTC with DTLS; frames travel host↔peer, never through the broker.
+  The broker owns signaling + NAT traversal + relay fallback only.
+- **Contract met out of the box.** A room is the host's *fixed* brokering id; a random 24+ char `roomKey` used
+  as that id yields room routing **and** invite-secret unguessability in one value (PeerJS collides only when two
+  rooms reuse an id). Peers join with `peer.connect(roomKey)`; per-peer `DataConnection` channels are ordered
+  and reliable.
+
+**Wiring seam (one).** PeerJS is wired to the existing `TransportBroker` contract in `transport.ts` — the single
+seem the app consumes. No change to that contract; only a new implementation of it. The wiring maps
+`createRoom()`/`connect()` and the ordered per-player channel methods onto `Peer`/`DataConnection`:
+
+```
+TransportBroker  ── implemented by ──►  PeerJsBroker (peerjs SDK, managed PeerServer Cloud)
+  createRoom()/connect()       ->  host fixed-id = roomKey; peer connect(roomKey)
+  onPeerConnect/onPeerDisconnect ->  Peer 'connection' / DataConnection 'close'
+  onInboundFrame(peerId, frame)->  DataConnection 'data'   (ordered per channel)
+  deliverToPeer(peerId, frame) ->  connection.send(frame)
+  sendToPeer(frame)            ->  this peer's DataConnection.send(frame) to the host
+  onPeerReady({peerId, seat})  ->  DataConnection 'open'   (seat via metadata, for reclaim)
+  disconnect()                 ->  Peer.destroy()
+```
+
+The wire format is locked at this seam by `transport.ts`'s existing `wireFrame()` serialize↔deserialize
+round-trip, so any future broker (including re-selection) must match the declared frame format. PeerJS is the
+chosen managed broker, but the seam keeps re-selection a drop-in swap.
+
+Verification before wiring (recorded in detail in the research brief): confirm the `peerjs` import path
+and that `new Peer(fixedId)` fixed-id semantics hold in the installed build; confirm `0.peerjs.com:443`
+reachability behind typical NAT/firewalls (the spec's TURN/relay-tuning toggle). Neither blocks the design.
+
 ## Protocol definition
 
 Frame envelope on every transport frame:
@@ -171,7 +212,8 @@ src/
 
 ## Open questions
 
-1. **Broker selection** — exact managed service (PeerJS-class). Confirm the broker API exposes a create-room/return-key contract and per-player ordered channels before committing to the `signaling.ts` interface.
+1. **Broker selection** — **resolved.** Managed broker = **PeerJS via PeerServer Cloud** (`0.peerjs.com:443`); wired at the single `TransportBroker` seam in `transport.ts` (see the Broker selection section). Remaining checks are the two
+   `[NEEDS CLARIFICATION]` items above (peerjs import path; cloud reachability), not re-selection.
 2. **Reconnect window size** — the bounded pre-join window the host holds; pick a concrete duration (e.e., 30–60 s per hand).
 3. **Bot-fill quality** — reuse the existing AI-player (`aiPlayer.ts`) policy for bot seats, or define a separate minimal policy?
 4. **Seat-assignment edge** — if two peers join in the same network tick, arrival order may be ambiguous; decide whether to serialize the first two joins deterministically.

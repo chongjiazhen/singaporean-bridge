@@ -35,7 +35,7 @@ export function readSeat(roomKey: string): PlayerIndex | null {
   } catch {
     return null;
   }
-  const seat = canonicalize<PlayerIndex>(parsed);
+  const seat = canonicalize(parsed) as PlayerIndex;
   return (seat === 0 || seat === 1 || seat === 2 || seat === 3) ? seat : null;
 }
 

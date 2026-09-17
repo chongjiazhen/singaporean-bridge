@@ -165,7 +165,7 @@ function multiplayerUseGame(opts: {
   const awaitingContinue = computeAwaitingContinue(state, pauseAfterTrick, 0);
 
   const handleNewHand = useCallback(() => {}, []);
-  const handleSetRules = useCallback((change: Partial<GameRules>) => {}, [pauseAfterTrick]);
+  const handleSetRules = useCallback(() => {}, [pauseAfterTrick]);
   const handleSetPauseAfterTrick = useCallback((on: boolean) => {
     setPauseAfterTrickState(on);
     savePauseAfterTrick(on);

@@ -23,6 +23,7 @@ import {
   isInboundCommandType,
   type Frame,
 } from './protocol';
+export type { Frame };
 
 /**
  * Force a frame through the protocol wire format (serialize -> deserialize)
@@ -35,10 +36,10 @@ import {
  * wire protocol and surfacing a hard error at the transport seam instead of a
  * silent failure once a string-payload broker is wired.
  */
-const wireFrame = (frame: Frame): Frame =>
+export const wireFrame = (frame: Frame): Frame =>
   deserializeFrame(serializeFrame(frame));
 import { rememberSeat } from './peer';
-import type { PlayerIndex } from './peer';
+import type { PlayerIndex } from '../engine/types';
 import type { GameState, Card, Strain, GameState as EngineState } from '../engine/types';
 import {
   makeBid,
@@ -130,7 +131,6 @@ export interface Transport {
  */
 export class InMemoryBroker implements TransportBroker {
   private roomKey?: string;
-  private seat?: PlayerIndex;
 
   private peerConnectCbs = new Set<(peerId: string) => void>();
   private peerDisconnectCbs = new Set<(peerId: string) => void>();
@@ -180,7 +180,6 @@ export class InMemoryBroker implements TransportBroker {
   }
   /** Test helper: seat this instance on the broker. */
   __emitPeerReady(seat: PlayerIndex): void {
-    this.seat = seat;
     this.readyCbs.forEach((cb) => cb({ peerId: this.roomKey ?? '', seat }));
   }
   /** Test helper: read frames this broker captured as sent. */
@@ -266,19 +265,20 @@ function assignSeats(
 export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
   const broker = opts.broker ?? new InMemoryBroker();
 
-  const handlers: {
-    onGameStateCb: ((state: GameState) => void) | undefined;
-    onPeerAssignedCb: ((info: { seat: PlayerIndex; peerId: string }) => void) | undefined;
-    onErrorCb: ((reason: string) => void) | undefined;
-    onCommandCb: ((frame: Frame) => void) | undefined;
-  } = {};
+  const handlers = {
+    onGameStateCb: undefined as ((state: GameState) => void) | undefined,
+    onPeerAssignedCb: undefined as ((info: { seat: PlayerIndex; peerId: string }) => void) | undefined,
+    onErrorCb: undefined as ((reason: string) => void) | undefined,
+    onCommandCb: undefined as ((frame: Frame) => void) | undefined,
+  };
 
   let currentSeat: PlayerIndex | undefined;
 
   // Authoritative engine state (host mode). Every applied command broadcasts a
   // fresh snapshot so host and every peer render the same source of truth.
   let state: EngineState = createInitialState();
-  const peers = new Set<string>();
+  // const peers = new Set<string>();
+  const peers: Set<string> = new Set();
 
   const broadcastState = (newState: EngineState) => {
     const snapshot: Frame = { type: 'GAME_STATE', data: canonicalize(newState) };
@@ -402,7 +402,7 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
       });
       broker.onInboundFrame((_peerId, frame) => {
         if (frame.type === 'GAME_STATE') {
-          handlers.onGameStateCb?.(canonicalize<GameState>(frame.data));
+          handlers.onGameStateCb?.(canonicalize(frame.data as GameState));
           return;
         }
         handlers.onCommandCb?.(frame);

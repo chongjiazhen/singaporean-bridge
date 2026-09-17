@@ -139,4 +139,47 @@ describe('canonicalize', () => {
     (out as { nested: { a: number } }).nested.a = 999;
     expect(input.nested.a).toBe(1);
   });
+
+  it('converts Set to array and back (JSON round-trip)', () => {
+    const input = { active: new Set([1, 2, 3]), passes: new Set([0]) };
+    const out = canonicalize(input);
+    expect(Array.isArray(out.active)).toBe(true);
+    expect(out.active).toEqual([1, 2, 3]);
+    expect(Array.isArray(out.passes)).toBe(true);
+    expect(out.passes).toEqual([0]);
+  });
+
+  it('preserves empty Set as empty array', () => {
+    const input = { empty: new Set<number>() };
+    const out = canonicalize(input);
+    expect(out.empty).toEqual([]);
+  });
+});
+
+describe('GameState serialization', () => {
+  it('round-trips full GameState with Sets via wireFrame', async () => {
+    const { createInitialState, startAuction } = await import('../src/engine/gameEngine');
+    const { canonicalize: canon } = await import('../src/network/protocol');
+    
+    let state = createInitialState();
+    state = startAuction(state);
+    
+    // Verify Sets exist in the state
+    expect(state.auction.activePlayers).toBeInstanceOf(Set);
+    expect(state.auction.passes).toBeInstanceOf(Set);
+    
+    const canonState = canon(state);
+    expect(Array.isArray(canonState.auction.activePlayers)).toBe(true);
+    expect(canonState.auction.activePlayers.sort()).toEqual([0, 1, 2, 3]);
+    expect(Array.isArray(canonState.auction.passes)).toBe(true);
+    expect(canonState.auction.passes).toEqual([]);
+    
+    // Round-trip through wireFrame
+    const { wireFrame } = await import('../src/network/transport');
+    const frame = { type: 'GAME_STATE' as const, data: canonState };
+    const roundTrip = wireFrame(frame);
+    
+    expect(Array.isArray(roundTrip.data.auction.activePlayers)).toBe(true);
+    expect(roundTrip.data.auction.activePlayers.sort()).toEqual([0, 1, 2, 3]);
+  });
 });

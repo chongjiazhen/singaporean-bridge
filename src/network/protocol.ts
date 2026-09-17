@@ -69,10 +69,28 @@ export function isInboundCommandType(type: string): boolean {
 
 /**
  * Deep, JSON round-trip canonicalizer. Produces a fresh clone of `value` with
- * nested objects and arrays preserved and `null` retained. Deterministic for a
- * given input (no ordering guarantees beyond standard key order). Dates are out
+ * nested objects and arrays preserved, Sets serialized to arrays, and `null` retained.
+ * Deterministic for a given input (no ordering guarantees beyond standard key order). Dates are out
  * of scope.
  */
+function setToArray<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map(setToArray) as unknown as T;
+  }
+  if (value !== null && typeof value === 'object') {
+    const maybeSet = (value as unknown as Set<any>);
+    if (maybeSet instanceof Set) {
+      return Array.from(maybeSet) as unknown as T;
+    }
+    const result: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+      result[key] = setToArray(val);
+    }
+    return result as T;
+  }
+  return value;
+}
+
 export function canonicalize<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
+  return setToArray(JSON.parse(JSON.stringify(setToArray(value)))) as T;
 }
