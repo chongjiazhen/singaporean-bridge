@@ -18,9 +18,25 @@
  */
 import {
   canonicalize,
+  deserializeFrame,
+  serializeFrame,
   isInboundCommandType,
   type Frame,
 } from './protocol';
+
+/**
+ * Force a frame through the protocol wire format (serialize -> deserialize)
+ * before it leaves transport.ts.
+ *
+ * `TransportBroker.deliverToPeer`/`sendToPeer` are typed on the `Frame` object,
+ * so nothing in the contract forces the bytes through `serializeFrame` /
+ * `deserializeFrame`. This guard guarantees every frame that reaches a broker
+ * round-trips through the declared wire format, locking future brokers to the
+ * wire protocol and surfacing a hard error at the transport seam instead of a
+ * silent failure once a string-payload broker is wired.
+ */
+const wireFrame = (frame: Frame): Frame =>
+  deserializeFrame(serializeFrame(frame));
 import { rememberSeat } from './peer';
 import type { PlayerIndex } from './peer';
 import type { GameState, Card, Strain, GameState as EngineState } from '../engine/types';
@@ -267,7 +283,7 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
   const broadcastState = (newState: EngineState) => {
     const snapshot: Frame = { type: 'GAME_STATE', data: canonicalize(newState) };
     for (const peerId of peers) {
-      void broker.deliverToPeer(peerId, snapshot);
+      void broker.deliverToPeer(peerId, wireFrame(snapshot));
     }
     handlers.onGameStateCb?.(canonicalize<GameState>(newState));
   };
@@ -294,7 +310,7 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
       const reason = err instanceof Error ? err.message : String(err);
       handlers.onErrorCb?.(reason);
       const rejected: Frame = { type: 'ERROR', data: { reason, commandId: peerId } };
-      void broker.deliverToPeer(peerId, rejected);
+      void broker.deliverToPeer(peerId, wireFrame(rejected));
     }
   };
 
@@ -319,21 +335,21 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
         applyCommand('host', { type: 'BID', data: { level, strain } } as Frame, opts.hostSeat ?? 0);
         return;
       }
-      void broker.sendToPeer({ type: 'BID', data: { level, strain } });
+      void broker.sendToPeer(wireFrame({ type: 'BID', data: { level, strain } }));
     },
     sendCallPartner(card) {
       if (opts.isHost) {
         applyCommand('host', { type: 'CALL_PARTNER', data: { card } } as Frame, opts.hostSeat ?? 0);
         return;
       }
-      void broker.sendToPeer({ type: 'CALL_PARTNER', data: { card } });
+      void broker.sendToPeer(wireFrame({ type: 'CALL_PARTNER', data: { card } }));
     },
     sendPlayCard(card) {
       if (opts.isHost) {
         applyCommand('host', { type: 'PLAY_CARD', data: { card } } as Frame, opts.hostSeat ?? 0);
         return;
       }
-      void broker.sendToPeer({ type: 'PLAY_CARD', data: { card } });
+      void broker.sendToPeer(wireFrame({ type: 'PLAY_CARD', data: { card } }));
     },
     onCommand(cb) {
       handlers.onCommandCb = cb;
