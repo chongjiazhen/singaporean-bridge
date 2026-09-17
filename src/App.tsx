@@ -60,6 +60,48 @@ function GameHost({
 }
 
 /**
+ * The joining peer. Renders the table driven by the transport in peer mode:
+ * it renders incoming GAME_STATE snapshots and forwards human actions back
+ * toward the host. No local game logic.
+ */
+function GamePeer({
+  roomKey,
+  broker,
+}: {
+  roomKey: string;
+  broker: TransportBroker;
+}) {
+  const game = useGame({ roomKey, isHost: false, broker });
+
+  return (
+    <GameTable
+      state={game.state}
+      rules={game.rules}
+      humanHand={game.state.hands[0]}
+      legalPlays={game.legalPlays}
+      availableCallCards={game.availableCallCards}
+      legalBids={game.legalBids}
+      canPass={game.canPass}
+      statusText={game.statusText}
+      isHumanTurn={game.isHumanTurn}
+      pauseAfterTrick={game.pauseAfterTrick}
+      awaitingContinue={game.awaitingContinue}
+      onBid={game.handleHumanBid}
+      onPass={game.handleHumanPass}
+      onCallCard={game.handleHumanCallCard}
+      onPlayCard={game.handleHumanPlayCard}
+      onOpenTutorial={() => game.setShowTutorial(true)}
+      onCloseTutorial={() => game.setShowTutorial(false)}
+      onNewHand={game.handleNewHand}
+      onSetRules={game.handleSetRules}
+      onSetPauseAfterTrick={game.handleSetPauseAfterTrick}
+      onContinue={game.handleContinue}
+      showTutorial={game.showTutorial}
+    />
+  );
+}
+
+/**
  * The solo game. Renders the table plus a single "Create Game" button that
  * mints a room, appends its invite key to the location, and remounts the same
  * component instance as the host.
