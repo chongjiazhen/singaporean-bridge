@@ -49,19 +49,22 @@ describe('makeTransport - host mode', () => {
     const errors: string[] = [];
     const t = await makeTransport({ roomKey: 'r', isHost: true, broker, hostSeat: 0 });
     await tick();
+    // Host auto-starts the auction. p1 lands on the current bidding seat; p2 one past it.
     broker.__emitPeerConnect('p1');
+    await tick();
+    broker.__emitPeerConnect('p2');
     t.onError((reason) => {
       errors.push(reason);
     });
-    // A BID arriving before the auction has started should be rejected by the engine.
+    // p2 is not the current bidder, so the engine rejects the BID with an ERROR.
     try {
-      broker.__emitInbound('p1', { type: 'BID', data: { level: 1, strain: 'Diamonds' } });
+      broker.__emitInbound('p2', { type: 'BID', data: { level: 1, strain: 'Diamonds' } });
     } catch {
       threw = true;
     }
     expect(threw).toBe(false);
     expect(errors.length).toBeGreaterThanOrEqual(1);
-    const errs = broker.__inboxFor('p1').filter((f) => f.type === 'ERROR');
+    const errs = broker.__inboxFor('p2').filter((f) => f.type === 'ERROR');
     expect(errs.length).toBeGreaterThanOrEqual(1);
     t.destroy();
   });

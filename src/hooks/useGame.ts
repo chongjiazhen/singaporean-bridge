@@ -45,6 +45,7 @@ function savePauseAfterTrick(on: boolean) {
   }
 }
 import { makeAiDecision } from '../ai/aiPlayer';
+import { makeTransport, type Transport, type TransportBroker } from '../network/transport';
 
 const AI_PHASES: ReadonlySet<GameState['phase']> = new Set(['AUCTION', 'PARTNER_CALL', 'TRICK_PLAY']);
 
@@ -96,7 +97,130 @@ function humanCallableCards(state: GameState): Card[] {
   return createDeck();
 }
 
-export function useGame() {
+export type UseGameReturn = {
+  state: GameState;
+  rules: GameRules;
+  showTutorial: boolean;
+  setShowTutorial: (v: boolean) => void;
+  pauseAfterTrick: boolean;
+  awaitingContinue: boolean;
+  handleNewHand: () => void;
+  handleSetRules: (change: Partial<GameRules>) => void;
+  handleSetPauseAfterTrick: (on: boolean) => void;
+  handleContinue: () => void;
+  handleHumanBid: (level: number, strain: Strain) => void;
+  handleHumanPass: () => void;
+  handleHumanCallCard: (card: Card) => void;
+  handleHumanPlayCard: (card: Card) => void;
+  legalBids: Bid[];
+  legalPlays: Card[];
+  availableCallCards: Card[];
+  canPass: boolean;
+  statusText: string;
+  isHumanTurn: boolean;
+  /** 'solo' when no transport is involved; 'host' or 'peer' in multiplayer. */
+  mode: 'solo' | 'host' | 'peer';
+};
+
+/**
+ * The multiplayer game hook. State is authoritative in the transport: in host
+ * mode the transport drives the engine and broadcasts; in peer mode it renders
+ * incoming snapshots and the UI forwards human actions back to the host.
+ */
+function multiplayerUseGame(opts: {
+  roomKey: string;
+  isHost: boolean;
+  broker?: TransportBroker;
+}): UseGameReturn {
+  const [transport, setTransport] = useState<Transport | null>(null);
+
+  // Create the transport once; clean it up on unmount.
+  useEffect(() => {
+    const handle = makeTransport({
+      roomKey: opts.roomKey,
+      isHost: opts.isHost,
+      hostSeat: 0,
+      broker: opts.broker,
+    });
+    handle.then((t) => {
+      setTransport(t);
+    });
+    return () => { void handle.then((t) => t.destroy()); };
+  }, [opts.roomKey, opts.isHost]);
+
+  const [rules] = useState<GameRules>(loadRules);
+  const [pauseAfterTrick, setPauseAfterTrickState] = useState<boolean>(loadPauseAfterTrick);
+  const [state, setState] = useState<GameState>(() =>
+    startAuction(createInitialState(0, rules)));
+
+  // The transport is the source of truth. In host mode it feeds the engine;
+  // in peer mode the UI renders the received snapshot (no local mutation).
+  // Register synchronously on resolve so no snapshot is missed.
+  useEffect(() => {
+    if (!transport) return;
+    transport.onGameState((snapshot) => setState(snapshot));
+    return () => { transport.onGameState(() => {}); };
+  }, [transport]);
+
+  const awaitingContinue = computeAwaitingContinue(state, pauseAfterTrick, 0);
+
+  const handleNewHand = useCallback(() => {}, []);
+  const handleSetRules = useCallback((change: Partial<GameRules>) => {}, [pauseAfterTrick]);
+  const handleSetPauseAfterTrick = useCallback((on: boolean) => {
+    setPauseAfterTrickState(on);
+    savePauseAfterTrick(on);
+  }, []);
+  const handleContinue = useCallback(() => {}, []);
+
+  // Multiplayer actions forward to the transport; the transport applies locally
+  // in host mode and broadcasts, or forwards to the host in peer mode.
+  const handleHumanBid = useCallback((level: number, strain: Strain) => {
+    if (!transport) return;
+    transport.sendBid(level, strain);
+  }, [transport]);
+
+  const handleHumanPass = useCallback(() => {
+    if (!transport) return;
+    transport.sendPass();
+  }, [transport]);
+
+  const handleHumanCallCard = useCallback((card: Card) => {
+    if (!transport) return;
+    transport.sendCallPartner(card);
+  }, [transport]);
+
+  const handleHumanPlayCard = useCallback((card: Card) => {
+    if (!transport) return;
+    transport.sendPlayCard(card);
+  }, [transport]);
+
+  return {
+    state,
+    rules,
+    showTutorial: false,
+    setShowTutorial: () => {},
+    pauseAfterTrick,
+    awaitingContinue,
+    handleNewHand,
+    handleSetRules,
+    handleSetPauseAfterTrick,
+    handleContinue,
+    handleHumanBid,
+    handleHumanPass,
+    handleHumanCallCard,
+    handleHumanPlayCard,
+    legalBids: humanLegalBids(state),
+    legalPlays: awaitingContinue ? [] : humanLegalPlays(state),
+    availableCallCards: humanCallableCards(state),
+    canPass: canPass(state, state.currentPlayer ?? 0),
+    statusText: getGameStatusText(state),
+    isHumanTurn: state.currentPlayer === 0,
+    mode: opts.isHost ? 'host' : 'peer',
+  };
+}
+
+/** Solo game: the player is seat 0, no transport. Existing behaviour, unchanged. */
+function soloUseGame(): UseGameReturn {
   // The player's chosen rules. Hidden partner reaches the table immediately while the
   // auction is still open (nothing about partners is known yet), otherwise from the next
   // deal: flipping mid-play would either leak or un-reveal the partner. Wash rules always
@@ -197,5 +321,24 @@ export function useGame() {
     canPass: canPass(state, 0),
     statusText: getGameStatusText(state),
     isHumanTurn: state.currentPlayer === 0,
+    mode: 'solo',
   };
+}
+
+export function useGame(opts?: {
+  roomKey?: string;
+  isHost?: boolean;
+  broker?: TransportBroker;
+}): UseGameReturn {
+  const mode: 'solo' | 'host' | 'peer' =
+    opts?.roomKey ? (opts.isHost ? 'host' : 'peer') : 'solo';
+
+  if (mode === 'solo') {
+    return soloUseGame();
+  }
+  return multiplayerUseGame({
+    roomKey: opts!.roomKey!,
+    isHost: opts!.isHost === true,
+    broker: opts?.broker,
+  });
 }
