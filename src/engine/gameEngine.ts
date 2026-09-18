@@ -145,10 +145,21 @@ export function getFirstBidder(state: GameState): PlayerIndex {
   return toPlayerIndex((state.dealer + 1) % 4);
 }
 
+/**
+ * Whether `player` is still an active bidder. Peer snapshots arrive through the
+ * wire canonicalizer (protocol.canonicalize), which serializes the `Set` of
+ * active players to an array; accept both shapes so a rendered snapshot never
+ * throws when the turn UI queries passability.
+ */
+function isActivePlayer(activePlayers: Set<PlayerIndex>, player: PlayerIndex): boolean {
+  if (activePlayers instanceof Set) return activePlayers.has(player);
+  return (activePlayers as unknown as PlayerIndex[]).includes(player);
+}
+
 /** True when `player` may pass right now (an opening bid exists, or they are not the opener). */
 export function canPass(state: GameState, player: PlayerIndex): boolean {
   if (state.phase !== 'AUCTION' || state.currentPlayer !== player) return false;
-  if (!state.auction.activePlayers.has(player)) return false;
+  if (!isActivePlayer(state.auction.activePlayers, player)) return false;
   return !(state.auction.bids.length === 0 && player === getFirstBidder(state));
 }
 

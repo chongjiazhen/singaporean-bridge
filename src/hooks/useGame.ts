@@ -5,6 +5,7 @@ import type {
   GameState,
   GameRules,
   Bid,
+  PlayerIndex,
 } from '../engine/types';
 import {
   createInitialState,
@@ -89,14 +90,14 @@ function advanceOneAi(current: GameState): GameState {
 
 // Legality queries for the human seat. Each handler re-checks against the
 // state it is applied to, so a stale click can never throw inside setState.
-function humanLegalBids(state: GameState): Bid[] {
-  return state.phase === 'AUCTION' && state.currentPlayer === 0
-    ? getLegalBids(state.auction.currentBid, 0)
+function humanLegalBids(state: GameState, seat: PlayerIndex): Bid[] {
+  return state.phase === 'AUCTION' && state.currentPlayer === seat
+    ? getLegalBids(state.auction.currentBid, seat)
     : [];
 }
 
-function humanLegalPlays(state: GameState): Card[] {
-  return state.phase === 'TRICK_PLAY' && state.currentPlayer === 0 ? getLegalPlays(state, 0) : [];
+function humanLegalPlays(state: GameState, seat: PlayerIndex): Card[] {
+  return state.phase === 'TRICK_PLAY' && state.currentPlayer === seat ? getLegalPlays(state, seat) : [];
 }
 
 // True once a trick has finished and is sitting on the table waiting for the
@@ -111,8 +112,8 @@ function computeAwaitingContinue(state: GameState, pauseAfterTrick: boolean, res
 }
 
 /** Every card is callable, including your own (play alone); the UI asks for confirmation on those. */
-function humanCallableCards(state: GameState): Card[] {
-  if (state.phase !== 'PARTNER_CALL' || state.currentPlayer !== 0) return [];
+function humanCallableCards(state: GameState, seat: PlayerIndex): Card[] {
+  if (state.phase !== 'PARTNER_CALL' || state.currentPlayer !== seat) return [];
   return createDeck();
 }
 
@@ -188,6 +189,11 @@ export function useGame(opts?: {
 
   const awaitingContinue = computeAwaitingContinue(state, pauseAfterTrick, resumedAt);
 
+  // Seat of the human controlling this UI: 0 in solo/host, the peer's
+  // assigned seat in peer mode. Derived from the transport so the seat-gated
+  // queries below are correct for whichever seat a peer actually occupies.
+  const seat: PlayerIndex = mode === 'solo' ? 0 : (transport?.seat ?? 0);
+
   const handleSetRules = useCallback((change: Partial<GameRules>) => {
     setRulesState((prevRules: GameRules) => {
       const nextRules = { ...prevRules, ...change };
@@ -232,7 +238,7 @@ export function useGame(opts?: {
 
   const handleHumanBid = useCallback((level: number, strain: Strain) => {
     if (mode === 'solo') {
-      setState((prev: GameState) => humanLegalBids(prev).some((b: Bid) => b.level === level && b.strain === strain)
+      setState((prev: GameState) => humanLegalBids(prev, 0).some((b: Bid) => b.level === level && b.strain === strain)
         ? makeBid(prev, 0, level, strain)
         : prev);
       return;
@@ -252,7 +258,7 @@ export function useGame(opts?: {
 
   const handleHumanCallCard = useCallback((card: Card) => {
     if (mode === 'solo') {
-      setState((prev: GameState) => humanCallableCards(prev).some((c: Card) => cardsEqual(c, card))
+      setState((prev: GameState) => humanCallableCards(prev, 0).some((c: Card) => cardsEqual(c, card))
         ? callPartner(prev, 0, card)
         : prev);
       return;
@@ -265,7 +271,7 @@ export function useGame(opts?: {
     if (mode === 'solo') {
       setState((prev: GameState) => {
         if (computeAwaitingContinue(prev, pauseAfterTrick, resumedAt)) return prev;
-        return humanLegalPlays(prev).some((c: Card) => cardsEqual(c, card))
+        return humanLegalPlays(prev, 0).some((c: Card) => cardsEqual(c, card))
           ? playCard(prev, 0, card)
           : prev;
       });
@@ -290,12 +296,12 @@ export function useGame(opts?: {
     handleHumanPass,
     handleHumanCallCard,
     handleHumanPlayCard,
-    legalBids: humanLegalBids(state),
-    legalPlays: awaitingContinue ? [] : humanLegalPlays(state),
-    availableCallCards: humanCallableCards(state),
-    canPass: canPass(state, state.currentPlayer ?? 0),
+    legalBids: humanLegalBids(state, seat),
+    legalPlays: awaitingContinue ? [] : humanLegalPlays(state, seat),
+    availableCallCards: humanCallableCards(state, seat),
+    canPass: canPass(state, state.currentPlayer ?? seat),
     statusText: getGameStatusText(state),
-    isHumanTurn: state.currentPlayer === 0,
+    isHumanTurn: state.currentPlayer === seat,
     mode,
   };
 }
