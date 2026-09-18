@@ -10,6 +10,24 @@ import type { TransportBroker, Frame } from './transport';
 import type { PlayerIndex } from '../engine/types';
 import { ReclaimMap } from './peer';
 
+const PEER_OPEN_TIMEOUT_MS = 10_000;
+
+/**
+ * Reject with a descriptive error if `promise` does not settle within
+ * `ms` milliseconds. Prevents the UI from freezing forever when the
+ * PeerJS signaling handshake stalls (e.g. no outbound internet, cloud
+ * server unreachable).
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      (val) => { clearTimeout(timer); resolve(val); },
+      (err) => { clearTimeout(timer); reject(err); },
+    );
+  });
+}
+
 interface PeerJsBrokerConfig {
   /** Host's fixed peer ID = roomKey. */
   roomKey: string;
@@ -46,22 +64,29 @@ export class PeerJsBroker implements TransportBroker {
     if (!this.isHost) {
       throw new Error('createRoom only valid in host mode');
     }
-    // Host creates exactly one Peer instance with roomKey as fixed peer ID
-    // for signaling and NAT traversal. Incoming peers use this ID to connect.
-    this.peer = new Peer(this.roomKey, {
-      host: '0.peerjs.com',
-      port: 443,
-      secure: true,
-      debug: 0,
-    });
+    // Host creates exactly one Peer instance with roomKey as fixed peer ID.
+    // Idempotent: reuse a live Peer (StrictMode double-mount guard).
+    if (!this.peer || this.peer.destroyed || this.peer.disconnected) {
+      this.peer = new Peer(this.roomKey, {
+        host: '0.peerjs.com',
+        port: 443,
+        secure: true,
+        debug: 0,
+      });
+    }
 
-    await new Promise<void>((resolve, reject) => {
-      if (!this.peer) return reject(new Error('Peer not initialized'));
-      this.peer.on('open', () => resolve());
-      this.peer.on('error', (err) => reject(err));
-    });
+    if (!this.peer.open) {
+      await withTimeout(
+        new Promise<void>((resolve, reject) => {
+          this.peer!.on('open', () => resolve());
+          this.peer!.on('error', (err) => reject(err));
+        }),
+        PEER_OPEN_TIMEOUT_MS,
+        'PeerJS signaling connection timed out',
+      );
+    }
 
-    // Listen for incoming peer connections
+    // Listen for incoming peer connections (attach once; PeerJS dedupes).
     this.peer.on('connection', (conn) => this.handleIncomingConnection(conn));
 
     return { roomKey: this.roomKey };
@@ -69,23 +94,35 @@ export class PeerJsBroker implements TransportBroker {
 
   async connect(roomKey: string): Promise<void> {
     this.roomKey = roomKey;
-    // Peer mode: create Peer for signaling, then connect to host
-    // Host mode should not call connect() - use createRoom() instead
-    this.peer = new Peer({
-      host: '0.peerjs.com',
-      port: 443,
-      secure: true,
-      debug: 0,
-    });
+    // Peer mode: create Peer for signaling, then connect to host.
+    // Idempotent: if a Peer already exists and is alive, reuse it (StrictMode
+    // double-invokes effects; the first call's Peer may already be open or
+    // connecting). If it was destroyed, create a fresh one.
+    if (!this.peer || this.peer.destroyed || this.peer.disconnected) {
+      this.peer = new Peer({
+        host: '0.peerjs.com',
+        port: 443,
+        secure: true,
+        debug: 0,
+      });
+    }
 
-    await new Promise<void>((resolve, reject) => {
-      if (!this.peer) return reject(new Error('Peer not initialized'));
-      this.peer.on('open', () => resolve());
-      this.peer.on('error', (err) => reject(err));
-    });
+    if (!this.peer.open) {
+      await withTimeout(
+        new Promise<void>((resolve, reject) => {
+          this.peer!.on('open', () => resolve());
+          this.peer!.on('error', (err) => reject(err));
+        }),
+        PEER_OPEN_TIMEOUT_MS,
+        'PeerJS signaling connection timed out',
+      );
+    }
 
     if (!this.isHost) {
-      // Peer connects to host's fixed ID (the roomKey)
+      // Peer connects to host's fixed ID (the roomKey).
+      // Guard: if the connection to host is already established, skip.
+      const existing = this.connections.get('host');
+      if (existing && existing.open) return;
       const conn = this.peer.connect(this.roomKey, {
         reliable: true,
       });

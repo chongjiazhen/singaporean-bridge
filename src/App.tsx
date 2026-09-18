@@ -31,6 +31,18 @@ function GameHost({
   const broker = useMemo(() => makeTransportBroker(roomKey, true, 0), [roomKey]);
   const game = useGame({ roomKey, isHost: true, broker });
 
+  if (game.connectionError) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-900 text-red-300 p-4 text-center">
+        <div>
+          <p className="text-lg font-semibold mb-2">Connection failed</p>
+          <p className="text-sm text-gray-400">{game.connectionError}</p>
+          <p className="text-xs text-gray-500 mt-3">Check your internet connection and reload.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <GameTable
       state={game.state}
@@ -73,6 +85,18 @@ function GamePeer({
   // does not churn on every render.
   const broker = useMemo(() => makeTransportBroker(roomKey, false), [roomKey]);
   const game = useGame({ roomKey, isHost: false, broker });
+
+  if (game.connectionError) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-900 text-red-300 p-4 text-center">
+        <div>
+          <p className="text-lg font-semibold mb-2">Connection failed</p>
+          <p className="text-sm text-gray-400">{game.connectionError}</p>
+          <p className="text-xs text-gray-500 mt-3">Check your internet connection and reload.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <GameTable

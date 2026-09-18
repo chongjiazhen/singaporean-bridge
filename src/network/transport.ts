@@ -441,9 +441,13 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
     },
   };
 
-  void broker.connect(opts.roomKey).then(() => {
+  // Host calls createRoom() (fixed-ID Peer); peer calls connect() (random-ID
+  // Peer that dials the host). Arrow wrapper preserves the broker's `this`.
+  const init = opts.isHost
+    ? broker.createRoom()
+    : broker.connect.call(broker, opts.roomKey);
+  init.then(() => {
     if (opts.isHost) {
-      void broker.createRoom();
       // Move the authoritative state into the auction before any bid can apply.
       state = startAuction(state);
       // Broadcast initial state so bot can act if it's a bot's turn
@@ -478,6 +482,10 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
         handlers.onCommandCb?.(frame);
       });
     }
+  }).catch((err: unknown) => {
+    // Surface signaling failures (timeout, network error) to the UI so the
+    // user sees a message instead of a frozen table.
+    handlers.onErrorCb?.(err instanceof Error ? err.message : String(err));
   });
 
   return Promise.resolve(transport);

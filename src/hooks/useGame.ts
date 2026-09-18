@@ -178,6 +178,7 @@ export function useGame(opts?: {
   const [showTutorial, setShowTutorial] = useState(true);
   const [pauseAfterTrick, setPauseAfterTrickState] = useState<boolean>(loadPauseAfterTrick);
   const [resumedAt, setResumedAt] = useState<number>(0);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
 
   // The transport is the source of truth. In host mode it feeds the engine;
   // in peer mode the UI renders the received snapshot (no local mutation).
@@ -185,7 +186,8 @@ export function useGame(opts?: {
   useEffect(() => {
     if (!transport) return;
     transport.onGameState((snapshot: GameState) => setState(snapshot));
-    return () => { transport.onGameState(() => {}); };
+    transport.onError((reason: string) => setConnectionError(reason));
+    return () => { transport.onGameState(() => {}); transport.onError(() => {}); };
   }, [transport]);
 
   const awaitingContinue = computeAwaitingContinue(state, pauseAfterTrick, resumedAt);
@@ -305,5 +307,6 @@ export function useGame(opts?: {
     isHumanTurn: state.currentPlayer === seat,
     mode,
     seat,
+    connectionError,
   };
 }
