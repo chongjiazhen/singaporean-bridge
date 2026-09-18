@@ -46,30 +46,14 @@ export class PeerJsBroker implements TransportBroker {
     if (!this.isHost) {
       throw new Error('createRoom only valid in host mode');
     }
-    // Host reuses the Peer instance already created by connect().
-    // connect() creates a Peer without a fixed ID; this method upgrades it
-    // to a room-keyed server by registering the roomKey as the peer ID
-    // and opening a server-side listener on that ID.
-    if (!this.peer) {
-      this.peer = new Peer(this.roomKey, {
-        host: '0.peerjs.com',
-        port: 443,
-        secure: true,
-        debug: 0,
-      });
-    }
-
-    if (this.peer.id !== this.roomKey) {
-      // The Peer from connect() has a random ID; destroy it and create one
-      // with the roomKey so incoming peers can find the host.
-      this.peer.destroy();
-      this.peer = new Peer(this.roomKey, {
-        host: '0.peerjs.com',
-        port: 443,
-        secure: true,
-        debug: 0,
-      });
-    }
+    // Host creates exactly one Peer instance with roomKey as fixed peer ID
+    // for signaling and NAT traversal. Incoming peers use this ID to connect.
+    this.peer = new Peer(this.roomKey, {
+      host: '0.peerjs.com',
+      port: 443,
+      secure: true,
+      debug: 0,
+    });
 
     await new Promise<void>((resolve, reject) => {
       if (!this.peer) return reject(new Error('Peer not initialized'));
@@ -85,6 +69,8 @@ export class PeerJsBroker implements TransportBroker {
 
   async connect(roomKey: string): Promise<void> {
     this.roomKey = roomKey;
+    // Peer mode: create Peer for signaling, then connect to host
+    // Host mode should not call connect() - use createRoom() instead
     this.peer = new Peer({
       host: '0.peerjs.com',
       port: 443,
