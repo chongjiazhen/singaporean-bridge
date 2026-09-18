@@ -77,6 +77,7 @@ function render(state: GameState, overrides: Partial<Parameters<typeof GameTable
         state={state}
         rules={state.rules}
         humanHand={HUMAN_HAND}
+        humanSeat={0}
         legalPlays={LEGAL}
         availableCallCards={[]}
         legalBids={[]}

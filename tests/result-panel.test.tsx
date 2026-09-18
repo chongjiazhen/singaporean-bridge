@@ -22,13 +22,14 @@ function playWholeHand(hiddenPartner: boolean): GameState {
   return s;
 }
 
-function render(state: GameState): string {
+function render(state: GameState, humanSeat: PlayerIndex = 0): string {
   const noop = () => {};
   return renderToStaticMarkup(
     <GameTable
       state={state}
       rules={state.rules}
-      humanHand={state.hands[0]}
+      humanHand={state.hands[humanSeat]}
+      humanSeat={humanSeat}
       legalPlays={[]}
       availableCallCards={[]}
       legalBids={[]}

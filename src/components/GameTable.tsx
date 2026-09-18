@@ -15,6 +15,9 @@ interface GameTableProps {
   /** Rules the player has chosen; may differ from state.rules until the next deal. */
   rules: GameRules;
   humanHand: Card[];
+  /** The human's seat index (0=South, 1=West, 2=North, 3=East). The table
+   *  rotates so the human always sees themselves at the bottom (South). */
+  humanSeat: PlayerIndex;
   legalPlays: Card[];
   availableCallCards: Card[];
   legalBids: Bid[];
@@ -689,6 +692,7 @@ export function GameTable({
   state,
   rules,
   humanHand,
+  humanSeat,
   legalPlays,
   availableCallCards,
   legalBids,
@@ -753,6 +757,12 @@ export function GameTable({
   const hiddenHand = (p: PlayerIndex, position: 'north' | 'west' | 'east') => (
     <PlayerArea name={PLAYER_NAMES[p]} hand={state.hands[p]} isHuman={false} faceUp={false} position={position} />
   );
+
+  {/* Rotate the table so the human always sees themselves at South. */}
+  const northSeat = ((humanSeat + 2) % 4) as PlayerIndex;
+  const westSeat = ((humanSeat + 1) % 4) as PlayerIndex;
+  const eastSeat = ((humanSeat + 3) % 4) as PlayerIndex;
+  const southSeat = humanSeat;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-green-50 to-blue-50 dark:from-gray-900 dark:to-gray-800 text-gray-900 dark:text-gray-100 p-4">
@@ -823,18 +833,18 @@ export function GameTable({
       </header>
 
       <div className="flex flex-col items-center justify-center flex-1">
-        {hiddenHand(2, 'north')}
+        {hiddenHand(northSeat, 'north')}
 
         <div className="flex flex-1 items-center justify-center w-full max-w-4xl relative">
           <div className="w-full flex flex-row items-center justify-between">
-            {hiddenHand(1, 'west')}
+            {hiddenHand(westSeat, 'west')}
             <TrickArea state={state} awaitingContinue={awaitingContinue} onContinue={onContinue} />
-            {hiddenHand(3, 'east')}
+            {hiddenHand(eastSeat, 'east')}
           </div>
         </div>
 
         <PlayerArea
-          name={PLAYER_NAMES[0]}
+          name={PLAYER_NAMES[southSeat]}
           hand={humanHand}
           isHuman={true}
           faceUp={true}

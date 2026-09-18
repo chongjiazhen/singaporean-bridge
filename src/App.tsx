@@ -54,6 +54,12 @@ function parseJoinKey(): string | null {
   return match ? match[1] : null;
 }
 
+function parseHostKey(): string | null {
+  if (typeof window === 'undefined') return null;
+  const match = /^#host\/(.*\S)$/.exec(window.location.hash);
+  return match ? match[1] : null;
+}
+
 /**
  * The game host. Renders the table driven by the transport in host mode.
  */
@@ -85,6 +91,7 @@ function GameHost({
       state={game.state}
       rules={game.rules}
       humanHand={game.state.hands[game.seat]}
+      humanSeat={game.seat}
       legalPlays={game.legalPlays}
       availableCallCards={game.availableCallCards}
       legalBids={game.legalBids}
@@ -140,6 +147,7 @@ function GamePeer({
       state={game.state}
       rules={game.rules}
       humanHand={game.state.hands[game.seat]}
+      humanSeat={game.seat}
       legalPlays={game.legalPlays}
       availableCallCards={game.availableCallCards}
       legalBids={game.legalBids}
@@ -185,7 +193,7 @@ function GameSolo() {
 
       setRoomKey(roomKey);
       if (typeof window !== 'undefined') {
-        window.location.hash = `join/${roomKey}`;
+        window.location.hash = `host/${roomKey}`;
       }
     } catch (err) {
       console.error('Failed to create game', err);
@@ -204,6 +212,7 @@ function GameSolo() {
         state={game.state}
         rules={game.rules}
         humanHand={game.state.hands[game.seat]}
+        humanSeat={game.seat}
         legalPlays={game.legalPlays}
         availableCallCards={game.availableCallCards}
         legalBids={game.legalBids}
@@ -233,14 +242,18 @@ function GameSolo() {
 
 /**
  * Entry component. Picks the game variant from the current location on mount:
- * a `#join/<roomKey>` hash means join as peer, otherwise start solo (with the
- * option to create a host room).
+ * - `#host/<roomKey>` = host (authoritative, persists on F5)
+ * - `#join/<roomKey>` = peer
+ * - none = solo (with option to create a host room)
  */
 function App() {
   // Read the join key once from the URL; it is only relevant on mount.
-  const joinKey = useState(() => parseJoinKey())[0];
+  const hostKey = useState(() => parseHostKey())[0];
+  const joinKey = useState(() => hostKey ? null : parseJoinKey())[0];
 
-  const game = joinKey ? (
+  const game = hostKey ? (
+    <GameHost key={`host-${hostKey}`} roomKey={hostKey} />
+  ) : joinKey ? (
     <GamePeer key={joinKey} roomKey={joinKey} />
   ) : (
     <GameSolo />
