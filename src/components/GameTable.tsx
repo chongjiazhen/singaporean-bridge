@@ -161,7 +161,7 @@ function PlayerArea({
 }
 
 /** Every bid and pass so far, in table order. Visible for the whole auction. */
-function AuctionLog({ state }: { state: GameState }) {
+function AuctionLog({ state, humanHandPoints }: { state: GameState; humanHandPoints: number }) {
   const { log, activePlayers } = state.auction;
   return (
     <div className="bg-white/70 dark:bg-gray-800/70 rounded-lg p-3 border border-gray-200 dark:border-gray-700 mb-3 text-sm">
@@ -174,7 +174,7 @@ function AuctionLog({ state }: { state: GameState }) {
       {state.rules.wash && (
         <div className="text-xs text-gray-600 dark:text-gray-300 mb-2">
           {state.washes > 0 && `Washed ${state.washes} ${state.washes === 1 ? 'deal' : 'deals'}. `}
-          Every hand has at least {state.rules.washMinPoints} points; yours has {handPoints(state.hands[0])}.
+          Every hand has at least {state.rules.washMinPoints} points; yours has {humanHandPoints}.
         </div>
       )}
       {log.length === 0 ? (
@@ -849,7 +849,7 @@ export function GameTable({
         />
 
         <div className="w-full max-w-2xl mt-4">
-          {state.phase === 'AUCTION' && <AuctionLog state={state} />}
+          {state.phase === 'AUCTION' && <AuctionLog state={state} humanHandPoints={handPoints(humanHand)} />}
           {state.phase === 'AUCTION' && isHumanTurn && (
             <BiddingPanel state={state} legalBids={legalBids} canPass={canPass} onBid={onBid} onPass={onPass} />
           )}

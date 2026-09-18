@@ -32,7 +32,7 @@ function GameHost({
     <GameTable
       state={game.state}
       rules={game.rules}
-      humanHand={game.state.hands[0]}
+      humanHand={game.state.hands[game.seat]}
       legalPlays={game.legalPlays}
       availableCallCards={game.availableCallCards}
       legalBids={game.legalBids}
@@ -73,7 +73,7 @@ function GamePeer({
     <GameTable
       state={game.state}
       rules={game.rules}
-      humanHand={game.state.hands[0]}
+      humanHand={game.state.hands[game.seat]}
       legalPlays={game.legalPlays}
       availableCallCards={game.availableCallCards}
       legalBids={game.legalBids}
@@ -138,7 +138,7 @@ function GameSolo() {
       <GameTable
         state={game.state}
         rules={game.rules}
-        humanHand={game.state.hands[0]}
+        humanHand={game.state.hands[game.seat]}
         legalPlays={game.legalPlays}
         availableCallCards={game.availableCallCards}
         legalBids={game.legalBids}

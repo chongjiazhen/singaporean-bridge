@@ -139,6 +139,7 @@ export interface UseGameReturn {
   statusText: string;
   isHumanTurn: boolean;
   mode: 'solo' | 'host' | 'peer';
+  seat: PlayerIndex;
 }
 
 /**
@@ -303,5 +304,6 @@ export function useGame(opts?: {
     statusText: getGameStatusText(state),
     isHumanTurn: state.currentPlayer === seat,
     mode,
+    seat,
   };
 }
