@@ -110,17 +110,16 @@ function GameSolo() {
     try {
       // Mint an unguessable room key via the signaling layer, then pass it to
       // the host broker as its fixed PeerJS id so peers can connect to it.
+      // The key is issued exactly once here; the host (mounted on remount)
+      // adopts it as its fixed PeerJS id. No throwaway broker echoes it.
       const { roomKey } = await makeBroker().createRoom();
       if (!isRoomKeyValid(roomKey)) {
         throw new Error('minted room key failed validation');
       }
-      const hostBroker = makeTransportBroker(roomKey, true, 0);
-      const { roomKey: key } = await hostBroker.createRoom();
-      hostBroker.disconnect();
 
-      setRoomKey(key);
+      setRoomKey(roomKey);
       if (typeof window !== 'undefined') {
-        window.location.hash = `join/${key}`;
+        window.location.hash = `join/${roomKey}`;
       }
     } catch (err) {
       console.error('Failed to create game', err);
