@@ -140,6 +140,8 @@ export interface UseGameReturn {
   isHumanTurn: boolean;
   mode: 'solo' | 'host' | 'peer';
   seat: PlayerIndex;
+  /** Set when the transport's signaling init rejected; null while healthy. */
+  connectionError: string | null;
 }
 
 /**
