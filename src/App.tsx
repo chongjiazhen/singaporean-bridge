@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { GameTable } from './components/GameTable';
 import { useGame } from './hooks/useGame';
 import { makeTransportBroker } from './network/roomBroker';
@@ -25,7 +25,10 @@ function GameHost({
 }: {
   roomKey: string;
 }) {
-  const broker = makeTransportBroker(roomKey, true, 0);
+  // Stable per mount: a fresh broker each render would re-key the transport
+  // effect in useGame into a render loop. roomKey is fixed for the mount
+  // (the key prop remounts on any change), so a one-time memo is safe.
+  const broker = useMemo(() => makeTransportBroker(roomKey, true, 0), [roomKey]);
   const game = useGame({ roomKey, isHost: true, broker });
 
   return (
@@ -66,7 +69,9 @@ function GamePeer({
 }: {
   roomKey: string;
 }) {
-  const broker = makeTransportBroker(roomKey, false);
+  // Stable per mount (see GameHost) so the transport effect's broker dep
+  // does not churn on every render.
+  const broker = useMemo(() => makeTransportBroker(roomKey, false), [roomKey]);
   const game = useGame({ roomKey, isHost: false, broker });
 
   return (
