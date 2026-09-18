@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import { GameTable } from './components/GameTable';
 import { useGame } from './hooks/useGame';
 import { makeTransportBroker } from './network/roomBroker';
+import { makeBroker, isRoomKeyValid } from './network/signaling';
 import './index.css';
 
 /**
@@ -107,11 +108,16 @@ function GameSolo() {
 
   const onCreate = useCallback(async () => {
     try {
-      // Create a host broker to mint the room
-      const hostBroker = makeTransportBroker('', true, 0);
+      // Mint an unguessable room key via the signaling layer, then pass it to
+      // the host broker as its fixed PeerJS id so peers can connect to it.
+      const { roomKey } = await makeBroker().createRoom();
+      if (!isRoomKeyValid(roomKey)) {
+        throw new Error('minted room key failed validation');
+      }
+      const hostBroker = makeTransportBroker(roomKey, true, 0);
       const { roomKey: key } = await hostBroker.createRoom();
       hostBroker.disconnect();
-      
+
       setRoomKey(key);
       if (typeof window !== 'undefined') {
         window.location.hash = `join/${key}`;
