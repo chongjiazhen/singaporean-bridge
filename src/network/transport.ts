@@ -39,6 +39,7 @@ export type { Frame };
 export const wireFrame = (frame: Frame): Frame =>
   deserializeFrame(serializeFrame(frame));
 import { rememberSeat } from './peer';
+import { makeAiDecision } from '../ai/aiPlayer';
 import type { PlayerIndex } from '../engine/types';
 import type { GameState, Card, Strain, GameState as EngineState } from '../engine/types';
 import {
@@ -281,6 +282,7 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
   const peers: Set<string> = new Set();
 
   const arrivalOrder = new Map<string, number>();
+  const humanSeats = new Set<PlayerIndex>();
 
   const broadcastState = (newState: EngineState) => {
     const snapshot: Frame = { type: 'GAME_STATE', data: canonicalize(newState) };
@@ -288,6 +290,9 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
       void broker.deliverToPeer(peerId, wireFrame(snapshot));
     }
     handlers.onGameStateCb?.(canonicalize<GameState>(newState));
+    
+    // Bot fill: if it's a bot's turn, make an AI decision and apply it
+    maybeBotMove(newState);
   };
 
   const applyCommand = (
@@ -313,6 +318,62 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
       handlers.onErrorCb?.(reason);
       const rejected: Frame = { type: 'ERROR', data: { reason, commandId: peerId } };
       void broker.deliverToPeer(peerId, wireFrame(rejected));
+    }
+  };
+
+  /** Check if currentPlayer is a bot seat and if so, make an AI move. */
+  const maybeBotMove = (currentState: EngineState) => {
+    if (!opts.isHost) return; // Only host runs bots
+    if (currentState.currentPlayer === null) return;
+    
+    const currentPlayer = currentState.currentPlayer;
+    
+    // If the current player is the host (human), don't bot-move
+    if (currentPlayer === (opts.hostSeat ?? 0)) return;
+    
+    // If the current player is a human peer, don't bot-move
+    if (humanSeats.has(currentPlayer)) return;
+    
+    // This is a bot seat - make an AI decision
+    try {
+      const decision = makeAiDecision(currentState, currentPlayer);
+      let frame: Frame | null = null;
+      
+      switch (decision.action) {
+        case 'bid':
+          if (decision.bid) {
+            frame = { type: 'BID', data: { level: decision.bid.level, strain: decision.bid.strain } };
+          }
+          break;
+        case 'pass':
+          // Use the pass function directly since pass is host-driven
+          void setTimeout(() => {
+            try {
+              state = pass(state, currentPlayer);
+              broadcastState(state);
+            } catch (err) {
+              console.error(`Bot pass failed for seat ${currentPlayer}:`, err);
+            }
+          }, 0);
+          return;
+        case 'call':
+          if (decision.card) {
+            frame = { type: 'CALL_PARTNER', data: { card: decision.card } };
+          }
+          break;
+        case 'play':
+          if (decision.card) {
+            frame = { type: 'PLAY_CARD', data: { card: decision.card } };
+          }
+          break;
+      }
+      
+      if (frame) {
+        // Apply the bot's move via the normal command path
+        applyCommand(`bot-${currentPlayer}`, frame, currentPlayer);
+      }
+    } catch (err) {
+      console.error(`Bot move failed for seat ${currentPlayer}:`, err);
     }
   };
 
@@ -379,6 +440,8 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
       void broker.createRoom();
       // Move the authoritative state into the auction before any bid can apply.
       state = startAuction(state);
+      // Broadcast initial state so bot can act if it's a bot's turn
+      broadcastState(state);
       // Host seats incoming peers by arrival order.
       broker.onPeerConnect((peerId) => {
         if (!arrivalOrder.has(peerId)) {
@@ -388,6 +451,7 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
         const seat = assignSeats(opts.hostSeat ?? 0, arrivalOrder).get(peerId);
         if (seat !== undefined) {
           currentSeat = seat;
+          humanSeats.add(seat); // Track this seat as occupied by a human
           handlers.onPeerAssignedCb?.({ seat, peerId });
         }
       });
