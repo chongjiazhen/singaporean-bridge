@@ -351,15 +351,13 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
           }
           break;
         case 'pass':
-          // Use the pass function directly since pass is host-driven
-          void setTimeout(() => {
-            try {
-              state = pass(state, currentPlayer);
-              broadcastState(state);
-            } catch (err) {
-              console.error(`Bot pass failed for seat ${currentPlayer}:`, err);
-            }
-          }, 0);
+          // Apply pass synchronously through the same path as other bot moves
+          try {
+            state = pass(state, currentPlayer);
+            broadcastState(state);
+          } catch (err) {
+            console.error(`Bot pass failed for seat ${currentPlayer}:`, err);
+          }
           return;
         case 'call':
           if (decision.card) {
