@@ -21,15 +21,17 @@ describe('Bot fill', () => {
     // This is a bot seat, so bot should make a move
     await tick();
     await tick();
-    
-    // The bot should have made at least one bid
-    expect(currentState).not.toBeNull();
-    if (currentState && currentState.phase === 'AUCTION') {
-      // Bot should have bid or passed
-      console.log('Auction bids:', currentState.auction.bids.length);
-      console.log('Current player:', currentState.currentPlayer);
-    }
-    
+    await tick();
+
+    // Concrete bot effect: the bot seat advanced the auction by recording a
+    // bid. A null AI decision (bots not acting) leaves bids empty and fails here.
+    expect(currentState, 'received an auction snapshot').not.toBeNull();
+    expect(currentState!.phase, 'auction reached').toBe('AUCTION');
+    expect(
+      currentState!.auction.bids.length,
+      'bot recorded a concrete bid, not just a non-null state snapshot',
+    ).toBeGreaterThan(0);
+
     t.destroy();
   }, 5000);
   
