@@ -137,42 +137,47 @@ export class PeerJsBroker implements TransportBroker {
   private setupConnection(conn: any, peerId: string): void {
     conn.on('open', () => {
       if (this.isHost) {
+        // Guard: if a connection from this peerId is already open, close the
+        // stale one. PeerJS may re-deliver a stale connection event if the
+        // signaling server held a reference to the old Peer ID.
+        const existingConn = this.connections.get(peerId);
+        if (existingConn && existingConn !== conn && existingConn.open) {
+          console.warn(`Host: closing stale connection to ${peerId}, accepting new one`);
+          existingConn.close();
+          this.connections.delete(peerId);
+        }
+        if (!this.connections.has(peerId)) {
+          this.connections.set(peerId, conn);
+        }
+
         const now = Date.now();
-        // Check if this peer can reclaim a seat from a previous connection
         const reclaimedSeat = this.reclaimMap.reconnSeat(peerId, now);
         
         let seat: PlayerIndex;
         if (reclaimedSeat !== null) {
-          // Peer is reconnecting within the window - reuse their seat
           seat = reclaimedSeat;
-          // Update the reclaim map with the new connection timestamp
           this.reclaimMap.set(peerId, seat, now);
         } else {
-          // New peer - assign seat by arrival order
           if (!this.arrivalOrder.has(peerId)) {
             this.arrivalOrder.set(peerId, this.nextArrivalPosition++);
           }
           seat = this.assignSeat(peerId);
-          // Record this connection for potential future reclaim
           this.reclaimMap.set(peerId, seat, now);
         }
         
         this.seatMap.set(peerId, seat);
 
-        // Send seat assignment to ALL peers so they can update their UI/seatMap
         const assignmentFrame: Frame = {
           type: 'PLAYER_ASSIGNMENT',
           data: { seat, peerId },
         };
 
-        // Broadcast to existing peers
         for (const [, existingConn] of this.connections) {
           if (existingConn.open) {
             existingConn.send(assignmentFrame);
           }
         }
 
-        // Also send to the newly connecting peer (if not already covered, but safe to ensure)
         if (conn.open) {
           conn.send(assignmentFrame);
         }
@@ -257,11 +262,10 @@ export class PeerJsBroker implements TransportBroker {
     this.seatMap.clear();
     this.nextArrivalPosition = 1;
     this.reclaimMap.clear();
-
-    if (this.peer) {
-      this.peer.destroy();
-      this.peer = null;
-    }
+    // Keep the Peer object alive after disconnect so its PeerID is released
+    // back to the signaling server gracefully, avoiding "ID is taken" on
+    // immediate reconnect. The connections are already closed above.
+    // peer.destroy() is deferred; call destroy() on page unload or tab close.
   }
 
   /** Get the seat assigned to a peer (host mode only). */
