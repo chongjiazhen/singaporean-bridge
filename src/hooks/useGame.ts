@@ -26,7 +26,7 @@ import {
   createDeck,
   DEFAULT_RULES,
 } from '../engine/types';
-import { makeTransport, type Transport, type TransportBroker } from '../network/transport';
+import { makeTransport, readHostSnapshot, type Transport, type TransportBroker } from '../network/transport';
 import { makeAiDecision } from '../ai/aiPlayer';
 
 const RULES_KEY = 'singaporean-bridge.rules';
@@ -162,11 +162,15 @@ export function useGame(opts?: {
   // Create the transport once; clean it up on unmount.
   useEffect(() => {
     if (mode === 'solo') return;
+    const isHost = opts!.isHost === true;
     const handle = makeTransport({
       roomKey: opts!.roomKey!,
-      isHost: opts!.isHost === true,
+      isHost,
       hostSeat: 0,
       broker: opts?.broker,
+      // A host that refreshes restores its previous authoritative hand instead of
+      // reshuffling. Peers never restore (they just re-subscribe to the host).
+      restoreSnapshot: isHost ? readHostSnapshot(opts!.roomKey!) : undefined,
     });
     handle.then((t: Transport) => {
       setTransport(t);

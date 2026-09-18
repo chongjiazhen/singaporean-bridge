@@ -34,6 +34,27 @@ export function createInitialState(
   return { ...createStateFromHands(hands, dealer, rules), washes };
 }
 
+/**
+ * Turn a canonicalized (wire) GameState snapshot back into engine state.
+ * `canonicalize` serializes the auction's `Set`s to plain arrays, so a snapshot
+ * read back from the wire (or from sessionStorage for a host refresh) has
+ * `activePlayers` and `passes` as arrays. Rebuild those as real Sets so the
+ * engine's `.has()`/`.add()`/`.delete()` calls work; the rest is already plain
+ * data. Everything else passes through untouched.
+ */
+export function rehydrateGameState(snapshot: GameState): GameState {
+  const active = snapshot.auction.activePlayers;
+  const passes = snapshot.auction.passes;
+  return {
+    ...snapshot,
+    auction: {
+      ...snapshot.auction,
+      activePlayers: active instanceof Set ? active : new Set(active as unknown as PlayerIndex[]),
+      passes: passes instanceof Set ? passes : new Set(passes as unknown as PlayerIndex[]),
+    },
+  };
+}
+
 /** Build a fresh DEALING state from explicit hands. Used by tests to pin fixtures. */
 export function createStateFromHands(hands: Card[][], dealer: PlayerIndex = 0, rules: GameRules = DEFAULT_RULES): GameState {
   return {

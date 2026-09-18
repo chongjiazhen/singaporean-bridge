@@ -50,6 +50,7 @@ import {
   createInitialState,
   startAuction,
   startNextHand,
+  rehydrateGameState,
 } from '../engine/gameEngine';
 
 /**
@@ -86,6 +87,22 @@ export interface TransportBroker {
 }
 
 /** Options accepted by {@link makeTransport}. */
+/** sessionStorage key for a host's persisted authoritative snapshot. */
+function hostSnapshotKey(roomKey: string): string {
+  return `bridge-host-snapshot:${roomKey}`;
+}
+
+/** Read a host's persisted snapshot (if any) for a room, or undefined. */
+export function readHostSnapshot(roomKey: string): GameState | undefined {
+  try {
+    const raw = sessionStorage.getItem(hostSnapshotKey(roomKey));
+    if (!raw) return undefined;
+    return JSON.parse(raw) as GameState;
+  } catch {
+    return undefined;
+  }
+}
+
 export interface MakeTransportOptions {
   /** The room key, parsed from `#join/<roomKey>`. */
   roomKey: string;
@@ -95,6 +112,13 @@ export interface MakeTransportOptions {
   broker?: TransportBroker;
   /** The host's own seat (0..3). Only meaningful when `isHost`. */
   hostSeat?: PlayerIndex;
+  /**
+   * Host only. A canonicalized snapshot to restore as the authoritative state on
+   * createRoom instead of dealing a fresh hand. Lets a host that refreshes its
+   * tab resume the same deal instead of reshuffling. Ignored for peers and when
+   * the host should deal new.
+   */
+  restoreSnapshot?: GameState;
 }
 
 /** The public transport handle the app consumes. */
@@ -298,7 +322,20 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
     }
     handlers.onGameStateCb?.(canonicalize<GameState>(newState));
     latestSnapshot = canonicalize<GameState>(newState);
-    
+
+    // Host persists its authoritative snapshot so a refresh can restore it
+    // (the host is the source of truth; without this, the host's own F5 would
+    // deal a brand-new hand). sessionStorage survives a same-tab reload, not a
+    // new tab, which is exactly the refresh case. Guarded: only the host
+    // persists, and storage failures (private mode) are non-fatal.
+    if (opts.isHost && latestSnapshot) {
+      try {
+        sessionStorage.setItem(hostSnapshotKey(opts.roomKey), JSON.stringify(latestSnapshot));
+      } catch {
+        /* storage unavailable; host refresh will simply re-deal */
+      }
+    }
+
     // Bot fill: if it's a bot's turn, make an AI decision and apply it
     maybeBotMove(newState);
   };
@@ -463,8 +500,17 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
     : broker.connect.call(broker, opts.roomKey);
   init.then(() => {
     if (opts.isHost) {
-      // Move the authoritative state into the auction before any bid can apply.
-      state = startAuction(state);
+      // A host that refreshes restores its previous authoritative state instead
+      // of dealing a fresh hand, so a refresh does NOT reshuffle the table. The
+      // snapshot arrives canonicalized (Sets as arrays), so rehydrate the Sets
+      // before the engine touches it. Only restore when there IS a saved hand;
+      // otherwise deal fresh as before.
+      if (opts.restoreSnapshot) {
+        state = rehydrateGameState(opts.restoreSnapshot);
+      } else {
+        // Move the authoritative state into the auction before any bid can apply.
+        state = startAuction(state);
+      }
       // Broadcast initial state so bot can act if it's a bot's turn
       broadcastState(state);
       // Host seats incoming peers by arrival order.
