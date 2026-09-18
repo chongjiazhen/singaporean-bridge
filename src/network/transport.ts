@@ -119,6 +119,14 @@ export interface MakeTransportOptions {
    * the host should deal new.
    */
   restoreSnapshot?: GameState;
+  /**
+   * Host only. When true, the host does NOT start the auction on room creation.
+   * Instead, the game stays in DEALING phase and the host must call
+   * `startGame()` to deal the hand and begin play. This lets peers join and be
+   * seated before dealing begins. When false (default), the auction starts as
+   * soon as peers are seated.
+   */
+  waitForPeers?: boolean;
 }
 
 /** The public transport handle the app consumes. */
@@ -143,6 +151,10 @@ export interface Transport {
   sendPass(seat?: PlayerIndex): void;
   /** Host-driven only: deal and start the next hand on the authoritative engine, then broadcast. */
   sendNewHand(): void;
+  /** Host-only. When waitForPeers is true, this transitions the game from
+   *  DEALING to AUCTION, deals the hand, and enables bot-fill.
+   *  No-op for peers. */
+  startGame(): void;
   /** Receive any non-GAME_STATE frame forwarded from the broker (both modes). */
   onCommand(cb: (frame: Frame) => void): void;
   /** Tear down the transport and its broker handle. */
@@ -315,6 +327,11 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
   const arrivalOrder = new Map<string, number>();
   const humanSeats = new Set<PlayerIndex>();
 
+  // Host mode only: guard to prevent bot moves and auction start until the
+  // host explicitly calls startGame().
+  let started = false;
+  if (!opts.isHost) started = true; // peers always start immediately
+
   const broadcastState = (newState: EngineState) => {
     const snapshot: Frame = { type: 'GAME_STATE', data: canonicalize(newState) };
     for (const peerId of peers) {
@@ -322,7 +339,14 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
     }
     // Deliver the authoritative engine state (with live Sets) to the local UI,
     // not the wire-serialized canonicalized version (which has arrays).
-    handlers.onGameStateCb?.(newState);
+    // Only deliver if the game has started (host called startGame or not
+    // waitForPeers). Peers always see state; host only sees it after start.
+    if (opts.isHost && opts.waitForPeers && !started) {
+      // Suppress snapshot delivery until startGame is called. Peers still
+      // receive their initial state via onPeerConnect's replay.
+    } else {
+      handlers.onGameStateCb?.(newState);
+    }
     latestSnapshot = canonicalize<GameState>(newState);
 
     // Host persists its authoritative snapshot so a refresh can restore it
@@ -338,7 +362,11 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
       }
     }
 
-    // Bot fill: if it's a bot's turn, make an AI decision and apply it
+    // Bot fill: if it's a bot's turn, make an AI decision and apply it.
+    // Host waits for peers before dealing (DEALING phase), so only run
+    // bots in active phases (AUCTION/TRICK_PLAY). In DEALING or before
+    // startGame, skip bot moves. Peers always run bots in active phases.
+    if (opts.isHost && !started && newState.phase === 'DEALING') return;
     maybeBotMove(newState);
   };
 
@@ -435,34 +463,34 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
       if (latestSnapshot) cb(latestSnapshot);
       handlers.onGameStateCb = cb;
     },
-    onPeerAssigned(cb) {
+    onPeerAssigned(cb: (info: { seat: PlayerIndex; peerId: string }) => void) {
       handlers.onPeerAssignedCb = cb;
     },
-    onError(cb) {
+    onError(cb: (reason: string) => void) {
       handlers.onErrorCb = cb;
     },
-    sendBid(level, strain) {
+    sendBid(level: number, strain: Strain) {
       if (opts.isHost) {
         applyCommand('host', { type: 'BID', data: { level, strain } } as Frame, opts.hostSeat ?? 0);
         return;
       }
       void broker.sendToPeer(wireFrame({ type: 'BID', data: { level, strain } }));
     },
-    sendCallPartner(card) {
+    sendCallPartner(card: Card) {
       if (opts.isHost) {
         applyCommand('host', { type: 'CALL_PARTNER', data: { card } } as Frame, opts.hostSeat ?? 0);
         return;
       }
       void broker.sendToPeer(wireFrame({ type: 'CALL_PARTNER', data: { card } }));
     },
-    sendPlayCard(card) {
+    sendPlayCard(card: Card) {
       if (opts.isHost) {
         applyCommand('host', { type: 'PLAY_CARD', data: { card } } as Frame, opts.hostSeat ?? 0);
         return;
       }
       void broker.sendToPeer(wireFrame({ type: 'PLAY_CARD', data: { card } }));
     },
-    onCommand(cb) {
+    onCommand(cb: (frame: Frame) => void) {
       handlers.onCommandCb = cb;
     },
     // The host drives passing for any seat; peers never send a pass frame
@@ -482,6 +510,17 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
     // calling this is a no-op: it must wait for the host's next GAME_STATE snapshot.
     sendNewHand() {
       if (!opts.isHost) return;
+      try {
+        state = startAuction(startNextHand(state));
+        broadcastState(state);
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        handlers.onErrorCb?.(reason);
+      }
+    },
+    startGame() {
+      if (!opts.isHost) return;
+      started = true;
       try {
         state = startAuction(startNextHand(state));
         broadcastState(state);
@@ -510,10 +549,16 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
       if (opts.restoreSnapshot) {
         state = rehydrateGameState(opts.restoreSnapshot);
       } else {
-        // Move the authoritative state into the auction before any bid can apply.
-        state = startAuction(state);
+        // When waitForPeers is true, stay in DEALING and wait for the host to
+        // call startGame(). Otherwise start the auction immediately so bots
+        // can begin playing.
+        if (!opts.waitForPeers) {
+          state = startAuction(state);
+        }
       }
-      // Broadcast initial state so bot can act if it's a bot's turn
+      // Broadcast initial state; if waitForPeers, the state is DEALING with
+      // no auction yet — the host's UI will show a "Start Game" button.
+      // Delivery is suppressed until startGame is called (see broadcastState).
       broadcastState(state);
       // Host seats incoming peers by arrival order.
       broker.onPeerConnect((peerId) => {

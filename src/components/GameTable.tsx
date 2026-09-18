@@ -18,6 +18,10 @@ interface GameTableProps {
   /** The human's seat index (0=South, 1=West, 2=North, 3=East). The table
    *  rotates so the human always sees themselves at the bottom (South). */
   humanSeat: PlayerIndex;
+  /** Host-only: shows the "Start Game" button when true. */
+  canStartGame?: boolean;
+  /** Host-only: called when the host clicks "Start Game". */
+  onStartGame?: () => void;
   legalPlays: Card[];
   availableCallCards: Card[];
   legalBids: Bid[];
@@ -708,6 +712,8 @@ export function GameTable({
   onNewHand,
   onSetRules,
   showTutorial,
+  canStartGame,
+  onStartGame,
   pauseAfterTrick,
   awaitingContinue,
   onSetPauseAfterTrick,
@@ -859,6 +865,35 @@ export function GameTable({
         />
 
         <div className="w-full max-w-2xl mt-4">
+          {/* Pre-game: host shows Start Game; peers see waiting message. */}
+          {state.phase === 'DEALING' && (
+            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-6 border border-blue-200 dark:border-blue-800 text-center mb-4">
+              {canStartGame ? (
+                <>
+                  <p className="text-blue-800 dark:text-blue-200 font-medium mb-3">Waiting for players…</p>
+                  <p className="text-blue-600 dark:text-blue-400 text-sm mb-4">
+                    Share this link to invite others: <code className="bg-blue-100 dark:bg-blue-800 px-2 py-1 rounded text-xs">{window.location.href}</code>
+                  </p>
+                  <button
+                    onClick={onStartGame}
+                    className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
+                  >
+                    ✦ Start Game
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="text-blue-800 dark:text-blue-200 font-medium mb-2">Share this link to invite others:</p>
+                  <p className="text-blue-600 dark:text-blue-400 text-sm mb-4">
+                    <code className="bg-blue-100 dark:bg-blue-800 px-2 py-1 rounded">{window.location.href}</code>
+                  </p>
+                  <p className="text-blue-500 dark:text-blue-300 text-xs">
+                    When players join, the host clicks Start Game to deal.
+                  </p>
+                </>
+              )}
+            </div>
+          )}
           {state.phase === 'AUCTION' && <AuctionLog state={state} humanHandPoints={handPoints(humanHand)} />}
           {state.phase === 'AUCTION' && isHumanTurn && (
             <BiddingPanel state={state} legalBids={legalBids} canPass={canPass} onBid={onBid} onPass={onPass} />

@@ -142,6 +142,10 @@ export interface UseGameReturn {
   seat: PlayerIndex;
   /** Set when the transport's signaling init rejected; null while healthy. */
   connectionError: string | null;
+  /** Host-only: shows the "Start Game" button when true. */
+  canStartGame: boolean;
+  /** Host-only: called when the host clicks "Start Game". */
+  handleStartGame: () => void;
 }
 
 /**
@@ -153,6 +157,8 @@ export function useGame(opts?: {
   roomKey?: string;
   isHost?: boolean;
   broker?: TransportBroker;
+  /** Host-only: wait for peers before dealing. */
+  waitForPeers?: boolean;
 }): UseGameReturn {
   const mode: 'solo' | 'host' | 'peer' =
     opts?.roomKey ? (opts.isHost ? 'host' : 'peer') : 'solo';
@@ -254,6 +260,12 @@ export function useGame(opts?: {
     }
   }, [mode, rules, transport]);
 
+  const handleStartGame = useCallback(() => {
+    if (mode === 'host') {
+      transport?.startGame();
+    }
+  }, [mode, transport]);
+
   const handleSetPauseAfterTrick = useCallback((on: boolean) => {
     setPauseAfterTrickState(on);
     savePauseAfterTrick(on);
@@ -316,6 +328,7 @@ export function useGame(opts?: {
     pauseAfterTrick,
     awaitingContinue,
     handleNewHand,
+    handleStartGame,
     handleSetRules,
     handleSetPauseAfterTrick,
     handleContinue,
@@ -332,5 +345,6 @@ export function useGame(opts?: {
     mode,
     seat,
     connectionError,
+    canStartGame: mode === 'host' && opts?.waitForPeers !== undefined && state.phase === 'DEALING',
   };
 }

@@ -10,11 +10,14 @@ describe('Bot fill', () => {
     const broker = new InMemoryBroker();
     // Host is seat 0, peer joins and gets seat 1, seats 2 and 3 are bots
     let currentState: GameState | null = null;
-    const t = await makeTransport({ roomKey: 'r', isHost: true, broker, hostSeat: 0 });
+    const t = await makeTransport({ roomKey: 'r', isHost: true, broker, hostSeat: 0, waitForPeers: false });
     t.onGameState((state) => {
       currentState = state;
     });
     await tick();
+    // Start the auction (normally host calls startGame, but waitForPeers=false
+    // means the auction starts on createRoom)
+    t.startGame();
     
     // No peers connect - seats 1, 2, 3 are all bots
     // First bidder is seat 1 (dealer=0, firstBidder=1)
