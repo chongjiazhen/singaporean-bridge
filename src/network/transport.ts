@@ -49,6 +49,7 @@ import {
   pass,
   createInitialState,
   startAuction,
+  startNextHand,
 } from '../engine/gameEngine';
 
 /**
@@ -116,6 +117,8 @@ export interface Transport {
   sendPlayCard(card: Card): void;
   /** Host-driven only: apply a pass for a seat and broadcast the resulting snapshot. */
   sendPass(seat?: PlayerIndex): void;
+  /** Host-driven only: deal and start the next hand on the authoritative engine, then broadcast. */
+  sendNewHand(): void;
   /** Receive any non-GAME_STATE frame forwarded from the broker (both modes). */
   onCommand(cb: (frame: Frame) => void): void;
   /** Tear down the transport and its broker handle. */
@@ -436,6 +439,18 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
         handlers.onErrorCb?.(reason);
       }
     },
+    // Only the host deals new hands, so every peer sees the same next deal. A peer
+    // calling this is a no-op: it must wait for the host's next GAME_STATE snapshot.
+    sendNewHand() {
+      if (!opts.isHost) return;
+      try {
+        state = startAuction(startNextHand(state));
+        broadcastState(state);
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        handlers.onErrorCb?.(reason);
+      }
+    },
     destroy() {
       broker.disconnect();
     },
@@ -454,7 +469,8 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
       broadcastState(state);
       // Host seats incoming peers by arrival order.
       broker.onPeerConnect((peerId) => {
-        if (!arrivalOrder.has(peerId)) {
+        const isNew = !arrivalOrder.has(peerId);
+        if (isNew) {
           arrivalOrder.set(peerId, arrivalOrder.size + 1);
           peers.add(peerId);
         }
@@ -463,6 +479,13 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
           currentSeat = seat;
           humanSeats.add(seat); // Track this seat as occupied by a human
           handlers.onPeerAssignedCb?.({ seat, peerId });
+        }
+        // A peer that joins (or refreshes back) after the deal must immediately
+        // receive the current authoritative state, not wait for the next move.
+        // Without this a late joiner sees nothing until the host's next mutation.
+        if (latestSnapshot) {
+          const snapshot: Frame = { type: 'GAME_STATE', data: latestSnapshot };
+          void broker.deliverToPeer(peerId, wireFrame(snapshot));
         }
       });
       broker.onInboundFrame((peerId, frame) => {
@@ -476,7 +499,11 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
       });
       broker.onInboundFrame((_peerId, frame) => {
         if (frame.type === 'GAME_STATE') {
-          handlers.onGameStateCb?.(canonicalize(frame.data as GameState));
+          // Track the latest snapshot so a subscriber wired after the first
+          // delivery (e.g. a refresh re-subscribe) still sees the current hand
+          // instead of nothing, mirroring the host's latestSnapshot replay.
+          latestSnapshot = canonicalize<GameState>(frame.data as GameState);
+          handlers.onGameStateCb?.(latestSnapshot);
           return;
         }
         handlers.onCommandCb?.(frame);

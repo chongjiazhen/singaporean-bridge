@@ -175,15 +175,21 @@ export function useGame(opts?: {
   }, [mode, opts?.roomKey, opts?.isHost, opts?.broker]);
 
   const [rules, setRulesState] = useState<GameRules>(loadRules);
+  // Solo mode seeds a local engine here. In host/peer modes this same value is only
+  // a pre-transport placeholder: the transport's authoritative GAME_STATE snapshots
+  // (subscribed in the effect below) overwrite it the moment the transport is ready,
+  // and the local engine is never driven in parallel. That is what keeps host and
+  // peers on a single shared deal instead of each tab dealing its own.
   const [state, setState] = useState<GameState>(() =>
-    startAuction(createInitialState(0, rules)));
+    mode === 'solo' ? startAuction(createInitialState(0, rules)) : createInitialState(0, rules));
   const [showTutorial, setShowTutorial] = useState(true);
   const [pauseAfterTrick, setPauseAfterTrickState] = useState<boolean>(loadPauseAfterTrick);
   const [resumedAt, setResumedAt] = useState<number>(0);
   const [connectionError, setConnectionError] = useState<string | null>(null);
 
-  // The transport is the source of truth. In host mode it feeds the engine;
-  // in peer mode the UI renders the received snapshot (no local mutation).
+  // The transport is the source of truth in host AND peer modes: both subscribe
+  // to its authoritative GAME_STATE snapshots and let them replace the local
+  // placeholder. (Solo mode has no transport and runs its own local engine.)
   // Register synchronously on resolve so no snapshot is missed.
   useEffect(() => {
     if (!transport) return;
@@ -200,15 +206,20 @@ export function useGame(opts?: {
   const seat: PlayerIndex = mode === 'solo' ? 0 : (transport?.seat ?? 0);
 
   const handleSetRules = useCallback((change: Partial<GameRules>) => {
+    // Rules take effect on the next deal. In solo mode we preview the change on the
+    // local engine; in host/peer the authoritative engine already carries the rules
+    // and a local mutation would only desync the rendered state, so we skip it.
     setRulesState((prevRules: GameRules) => {
       const nextRules = { ...prevRules, ...change };
       saveRules(nextRules);
-      setState((prev: GameState) => (prev.phase === 'DEALING' || prev.phase === 'AUCTION'
-        ? setRules(prev, { hiddenPartner: nextRules.hiddenPartner })
-        : prev));
+      if (mode === 'solo') {
+        setState((prev: GameState) => (prev.phase === 'DEALING' || prev.phase === 'AUCTION'
+          ? setRules(prev, { hiddenPartner: nextRules.hiddenPartner })
+          : prev));
+      }
       return nextRules;
     });
-  }, []);
+  }, [mode]);
 
   // Drive AI turns one move at a time. A fresh trick after a completed one gets a
   // longer pause so the finished trick stays visible. While awaiting the player's
@@ -227,10 +238,17 @@ export function useGame(opts?: {
   }, [mode, state, awaitingContinue]);
 
   const handleNewHand = useCallback(() => {
-    if (mode !== 'solo') return;
     setResumedAt(0);
-    setState((prev: GameState) => startAuction(setRules(startNextHand(prev), rules)));
-  }, [mode, rules]);
+    if (mode === 'solo') {
+      setState((prev: GameState) => startAuction(setRules(startNextHand(prev), rules)));
+      return;
+    }
+    // Host: deal the next hand on the authoritative engine so every peer sees the
+    // same new deal. Peer: no-op; the host's next snapshot drives it.
+    if (mode === 'host') {
+      transport?.sendNewHand();
+    }
+  }, [mode, rules, transport]);
 
   const handleSetPauseAfterTrick = useCallback((on: boolean) => {
     setPauseAfterTrickState(on);

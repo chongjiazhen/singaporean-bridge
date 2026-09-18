@@ -1,9 +1,46 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, Component, type ReactNode } from 'react';
 import { GameTable } from './components/GameTable';
 import { useGame } from './hooks/useGame';
 import { makeTransportBroker } from './network/roomBroker';
 import { makeBroker, isRoomKeyValid } from './network/signaling';
 import './index.css';
+
+/**
+ * Top-level error boundary. A render throw (e.g. a snapshot that arrives in a
+ * shape the UI does not expect) used to blank the whole page; this recovers to a
+ * reloadable screen instead so a single bad render does not kill the table.
+ */
+class GameErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: unknown) {
+    console.error('Game render error:', error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex items-center justify-center min-h-screen bg-gray-900 text-gray-200 p-4 text-center">
+          <div>
+            <p className="text-lg font-semibold mb-2">Something went wrong</p>
+            <p className="text-sm text-gray-400 mb-4">The table hit an unexpected error.</p>
+            <button
+              onClick={() => { void window.location.reload(); }}
+              className="px-4 py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
+            >
+              Reload
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 /**
  * Parse an invite key from `#join/<roomKey>`.
@@ -203,10 +240,13 @@ function App() {
   // Read the join key once from the URL; it is only relevant on mount.
   const joinKey = useState(() => parseJoinKey())[0];
 
-  if (joinKey) {
-    return <GamePeer key={joinKey} roomKey={joinKey} />;
-  }
-  return <GameSolo />;
+  const game = joinKey ? (
+    <GamePeer key={joinKey} roomKey={joinKey} />
+  ) : (
+    <GameSolo />
+  );
+
+  return <GameErrorBoundary>{game}</GameErrorBoundary>;
 }
 
 export default App;
