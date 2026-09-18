@@ -122,12 +122,23 @@ export class PeerJsBroker implements TransportBroker {
         
         this.seatMap.set(peerId, seat);
 
-        // Send seat assignment to the peer
+        // Send seat assignment to ALL peers so they can update their UI/seatMap
         const assignmentFrame: Frame = {
           type: 'PLAYER_ASSIGNMENT',
           data: { seat, peerId },
         };
-        conn.send(assignmentFrame);
+
+        // Broadcast to existing peers
+        for (const [, existingConn] of this.connections) {
+          if (existingConn.open) {
+            existingConn.send(assignmentFrame);
+          }
+        }
+
+        // Also send to the newly connecting peer (if not already covered, but safe to ensure)
+        if (conn.open) {
+          conn.send(assignmentFrame);
+        }
 
         this.onPeerConnectCb?.(peerId);
         this.onPeerReadyCb?.({ peerId, seat });
