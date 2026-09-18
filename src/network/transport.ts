@@ -280,6 +280,8 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
   // const peers = new Set<string>();
   const peers: Set<string> = new Set();
 
+  const arrivalOrder = new Map<string, number>();
+
   const broadcastState = (newState: EngineState) => {
     const snapshot: Frame = { type: 'GAME_STATE', data: canonicalize(newState) };
     for (const peerId of peers) {
@@ -371,8 +373,6 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
       broker.disconnect();
     },
   };
-
-  const arrivalOrder = new Map<string, number>();
 
   void broker.connect(opts.roomKey).then(() => {
     if (opts.isHost) {

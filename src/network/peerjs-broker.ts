@@ -8,6 +8,7 @@
 import { Peer } from 'peerjs';
 import type { TransportBroker, Frame } from './transport';
 import type { PlayerIndex } from '../engine/types';
+import { ReclaimMap } from './peer';
 
 interface PeerJsBrokerConfig {
   /** Host's fixed peer ID = roomKey. */
@@ -33,6 +34,7 @@ export class PeerJsBroker implements TransportBroker {
   private arrivalOrder = new Map<string, number>();
   private seatMap = new Map<string, PlayerIndex>();
   private nextArrivalPosition = 1;
+  private reclaimMap = new ReclaimMap();
 
   constructor(config: PeerJsBrokerConfig) {
     this.roomKey = config.roomKey;
@@ -44,13 +46,30 @@ export class PeerJsBroker implements TransportBroker {
     if (!this.isHost) {
       throw new Error('createRoom only valid in host mode');
     }
-    // Host uses roomKey as its fixed peer ID
-    this.peer = new Peer(this.roomKey, {
-      host: '0.peerjs.com',
-      port: 443,
-      secure: true,
-      debug: 0,
-    });
+    // Host reuses the Peer instance already created by connect().
+    // connect() creates a Peer without a fixed ID; this method upgrades it
+    // to a room-keyed server by registering the roomKey as the peer ID
+    // and opening a server-side listener on that ID.
+    if (!this.peer) {
+      this.peer = new Peer(this.roomKey, {
+        host: '0.peerjs.com',
+        port: 443,
+        secure: true,
+        debug: 0,
+      });
+    }
+
+    if (this.peer.id !== this.roomKey) {
+      // The Peer from connect() has a random ID; destroy it and create one
+      // with the roomKey so incoming peers can find the host.
+      this.peer.destroy();
+      this.peer = new Peer(this.roomKey, {
+        host: '0.peerjs.com',
+        port: 443,
+        secure: true,
+        debug: 0,
+      });
+    }
 
     await new Promise<void>((resolve, reject) => {
       if (!this.peer) return reject(new Error('Peer not initialized'));
@@ -95,11 +114,26 @@ export class PeerJsBroker implements TransportBroker {
   private setupConnection(conn: any, peerId: string): void {
     conn.on('open', () => {
       if (this.isHost) {
-        // Assign seat by arrival order
-        if (!this.arrivalOrder.has(peerId)) {
-          this.arrivalOrder.set(peerId, this.nextArrivalPosition++);
+        const now = Date.now();
+        // Check if this peer can reclaim a seat from a previous connection
+        const reclaimedSeat = this.reclaimMap.reconnSeat(peerId, now);
+        
+        let seat: PlayerIndex;
+        if (reclaimedSeat !== null) {
+          // Peer is reconnecting within the window - reuse their seat
+          seat = reclaimedSeat;
+          // Update the reclaim map with the new connection timestamp
+          this.reclaimMap.set(peerId, seat, now);
+        } else {
+          // New peer - assign seat by arrival order
+          if (!this.arrivalOrder.has(peerId)) {
+            this.arrivalOrder.set(peerId, this.nextArrivalPosition++);
+          }
+          seat = this.assignSeat(peerId);
+          // Record this connection for potential future reclaim
+          this.reclaimMap.set(peerId, seat, now);
         }
-        const seat = this.assignSeat(peerId);
+        
         this.seatMap.set(peerId, seat);
 
         // Send seat assignment to the peer
@@ -188,6 +222,7 @@ export class PeerJsBroker implements TransportBroker {
     this.arrivalOrder.clear();
     this.seatMap.clear();
     this.nextArrivalPosition = 1;
+    this.reclaimMap.clear();
 
     if (this.peer) {
       this.peer.destroy();
