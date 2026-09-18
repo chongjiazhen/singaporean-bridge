@@ -320,7 +320,9 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
     for (const peerId of peers) {
       void broker.deliverToPeer(peerId, wireFrame(snapshot));
     }
-    handlers.onGameStateCb?.(canonicalize<GameState>(newState));
+    // Deliver the authoritative engine state (with live Sets) to the local UI,
+    // not the wire-serialized canonicalized version (which has arrays).
+    handlers.onGameStateCb?.(newState);
     latestSnapshot = canonicalize<GameState>(newState);
 
     // Host persists its authoritative snapshot so a refresh can restore it
@@ -545,11 +547,12 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
       });
       broker.onInboundFrame((_peerId, frame) => {
         if (frame.type === 'GAME_STATE') {
-          // Track the latest snapshot so a subscriber wired after the first
-          // delivery (e.g. a refresh re-subscribe) still sees the current hand
-          // instead of nothing, mirroring the host's latestSnapshot replay.
+          // Track the latest canonicalized snapshot for late subscribers.
           latestSnapshot = canonicalize<GameState>(frame.data as GameState);
-          handlers.onGameStateCb?.(latestSnapshot);
+          // Deliver rehydrated state (with live Sets) to the UI, not the
+          // wire-serialized arrays. Rebuild the Sets that canonicalize flattens.
+          const rehydrated = rehydrateGameState(frame.data as GameState);
+          handlers.onGameStateCb?.(rehydrated);
           return;
         }
         handlers.onCommandCb?.(frame);

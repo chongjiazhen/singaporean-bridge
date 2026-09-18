@@ -37,20 +37,23 @@ export function createInitialState(
 /**
  * Turn a canonicalized (wire) GameState snapshot back into engine state.
  * `canonicalize` serializes the auction's `Set`s to plain arrays, so a snapshot
- * read back from the wire (or from sessionStorage for a host refresh) has
+ * read back from the wire (or from sessionStorage for a host refresh) it has
  * `activePlayers` and `passes` as arrays. Rebuild those as real Sets so the
  * engine's `.has()`/`.add()`/`.delete()` calls work; the rest is already plain
  * data. Everything else passes through untouched.
+ *
+ * Handles partial/incomplete snapshots gracefully (e.g. test fixtures).
  */
 export function rehydrateGameState(snapshot: GameState): GameState {
-  const active = snapshot.auction.activePlayers;
-  const passes = snapshot.auction.passes;
+  const auction = snapshot.auction ?? { activePlayers: [], passes: [], bids: [], log: [], currentBid: null, declarer: null };
+  const active = auction.activePlayers;
+  const passes = auction.passes;
   return {
     ...snapshot,
     auction: {
-      ...snapshot.auction,
-      activePlayers: active instanceof Set ? active : new Set(active as unknown as PlayerIndex[]),
-      passes: passes instanceof Set ? passes : new Set(passes as unknown as PlayerIndex[]),
+      ...auction,
+      activePlayers: active instanceof Set ? active : new Set((active ?? []) as unknown as PlayerIndex[]),
+      passes: passes instanceof Set ? passes : new Set((passes ?? []) as unknown as PlayerIndex[]),
     },
   };
 }
