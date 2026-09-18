@@ -278,6 +278,10 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
   // Authoritative engine state (host mode). Every applied command broadcasts a
   // fresh snapshot so host and every peer render the same source of truth.
   let state: EngineState = createInitialState();
+  // Latest canonicalized snapshot. Delivered to an `onGameState` subscriber that
+  // registers after the async init has already broadcast (the returned promise
+  // resolves after init runs), so a late consumer never misses the current state.
+  let latestSnapshot: GameState | undefined;
   // const peers = new Set<string>();
   const peers: Set<string> = new Set();
 
@@ -290,6 +294,7 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
       void broker.deliverToPeer(peerId, wireFrame(snapshot));
     }
     handlers.onGameStateCb?.(canonicalize<GameState>(newState));
+    latestSnapshot = canonicalize<GameState>(newState);
     
     // Bot fill: if it's a bot's turn, make an AI decision and apply it
     maybeBotMove(newState);
@@ -385,6 +390,9 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
       return opts.isHost;
     },
     onGameState(cb) {
+      // Deliver the current state first so a subscriber wired after the async
+      // init still sees the hand it is joining; future events follow.
+      if (latestSnapshot) cb(latestSnapshot);
       handlers.onGameStateCb = cb;
     },
     onPeerAssigned(cb) {
