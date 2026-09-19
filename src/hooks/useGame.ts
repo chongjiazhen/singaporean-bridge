@@ -159,6 +159,8 @@ export function useGame(opts?: {
   broker?: TransportBroker;
   /** Host-only: wait for peers before dealing. */
   waitForPeers?: boolean;
+  /** Host-only: seed the deal so fresh hands are reproducible from the seed. */
+  seed?: number;
 }): UseGameReturn {
   const mode: 'solo' | 'host' | 'peer' =
     opts?.roomKey ? (opts.isHost ? 'host' : 'peer') : 'solo';
@@ -177,12 +179,13 @@ export function useGame(opts?: {
       // A host that refreshes restores its previous authoritative hand instead of
       // reshuffling. Peers never restore (they just re-subscribe to the host).
       restoreSnapshot: isHost ? readHostSnapshot(opts!.roomKey!) : undefined,
+      seed: opts?.seed,
     });
     handle.then((t: Transport) => {
       setTransport(t);
     });
     return () => { void handle.then((t: Transport) => t.destroy()); };
-  }, [mode, opts?.roomKey, opts?.isHost, opts?.broker]);
+  }, [mode, opts?.roomKey, opts?.isHost, opts?.broker, opts?.seed]);
 
   const [rules, setRulesState] = useState<GameRules>(loadRules);
   // Solo mode seeds a local engine here. In host/peer modes this same value is only

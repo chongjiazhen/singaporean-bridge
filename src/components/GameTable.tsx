@@ -22,6 +22,8 @@ interface GameTableProps {
   canStartGame?: boolean;
   /** Host-only: called when the host clicks "Start Game". */
   onStartGame?: () => void;
+  /** Optional: shown as a "Host a game" button in the header (default solo screen). */
+  onHost?: () => void;
   legalPlays: Card[];
   availableCallCards: Card[];
   legalBids: Bid[];
@@ -714,6 +716,7 @@ export function GameTable({
   showTutorial,
   canStartGame,
   onStartGame,
+  onHost,
   pauseAfterTrick,
   awaitingContinue,
   onSetPauseAfterTrick,
@@ -769,6 +772,13 @@ export function GameTable({
   const westSeat = ((humanSeat + 1) % 4) as PlayerIndex;
   const eastSeat = ((humanSeat + 3) % 4) as PlayerIndex;
   const southSeat = humanSeat;
+  // Share a join link, never the current #host/<key> URL: opening a #host/ link
+  // mints a second fixed-ID Peer for the same room ("ID is taken"). For a peer
+  // URL this is a no-op, so #join/<key> is preserved. Guarded: GameTable can be
+  // server-rendered (window is undefined in that environment).
+  const shareUrl = typeof window !== 'undefined'
+    ? window.location.href.replace('#host/', '#join/')
+    : '';
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-green-50 to-blue-50 dark:from-gray-900 dark:to-gray-800 text-gray-900 dark:text-gray-100 p-4">
@@ -835,6 +845,14 @@ export function GameTable({
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-sm text-gray-600 dark:text-gray-300">{statusText}</span>
           <ContractBadge state={state} />
+          {onHost && (
+            <button
+              onClick={onHost}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+            >
+              ✦ Host a game
+            </button>
+          )}
         </div>
       </header>
 
@@ -872,7 +890,7 @@ export function GameTable({
                 <>
                   <p className="text-blue-800 dark:text-blue-200 font-medium mb-3">Waiting for players…</p>
                   <p className="text-blue-600 dark:text-blue-400 text-sm mb-4">
-                    Share this link to invite others: <code className="bg-blue-100 dark:bg-blue-800 px-2 py-1 rounded text-xs">{window.location.href}</code>
+                    Share this link to invite others: <code className="bg-blue-100 dark:bg-blue-800 px-2 py-1 rounded text-xs">{shareUrl}</code>
                   </p>
                   <button
                     onClick={onStartGame}
@@ -885,7 +903,7 @@ export function GameTable({
                 <>
                   <p className="text-blue-800 dark:text-blue-200 font-medium mb-2">Share this link to invite others:</p>
                   <p className="text-blue-600 dark:text-blue-400 text-sm mb-4">
-                    <code className="bg-blue-100 dark:bg-blue-800 px-2 py-1 rounded">{window.location.href}</code>
+                    <code className="bg-blue-100 dark:bg-blue-800 px-2 py-1 rounded">{shareUrl}</code>
                   </p>
                   <p className="text-blue-500 dark:text-blue-300 text-xs">
                     When players join, the host clicks Start Game to deal.

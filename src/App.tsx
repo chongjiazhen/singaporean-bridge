@@ -3,6 +3,7 @@ import { GameTable } from './components/GameTable';
 import { useGame } from './hooks/useGame';
 import { makeTransportBroker } from './network/roomBroker';
 import { makeBroker, isRoomKeyValid } from './network/signaling';
+import { setHostSeed, mintSeed, readSeed } from './network/dealSeed';
 import './index.css';
 
 /**
@@ -72,7 +73,7 @@ function GameHost({
   // effect in useGame into a render loop. roomKey is fixed for the mount
   // (the key prop remounts on any change), so a one-time memo is safe.
   const broker = useMemo(() => makeTransportBroker(roomKey, true, 0), [roomKey]);
-  const game = useGame({ roomKey, isHost: true, broker, waitForPeers: true });
+  const game = useGame({ roomKey, isHost: true, broker, waitForPeers: true, seed: readSeed(roomKey) });
 
   if (game.connectionError) {
     return (
@@ -174,17 +175,25 @@ function GamePeer({
 }
 
 /**
- * Home screen with "Create Game" and "Join Game" buttons.
+ * The single-player solo table. This is the default screen: it runs the local
+ * engine and offers one path to multiplayer — hosting a game from the table's
+ * header via `onHost` (rendered by GameTable).
  */
-function GameHome() {
-  const [joinKey, setJoinKey] = useState<string>('');
+function SoloGame() {
+  const game = useGame({});
 
-  const onCreate = useCallback(async () => {
+  // Solo hosts a peer room directly from the table. The button lives in the
+  // table header and calls this; it navigates the tab to `#host/<key>`.
+  const onHost = useCallback(async () => {
     try {
       const { roomKey } = await makeBroker().createRoom();
       if (!isRoomKeyValid(roomKey)) {
         throw new Error('minted room key failed validation');
       }
+      // Seed the deal so every fresh hand is reproducible from this seed. Stored
+      // in sessionStorage (same-tab) so the host room below can read it back;
+      // peers never need it because they render the authoritative snapshot.
+      setHostSeed(roomKey, mintSeed());
       if (typeof window !== 'undefined') {
         window.location.hash = `host/${roomKey}`;
       }
@@ -193,101 +202,41 @@ function GameHome() {
     }
   }, []);
 
-  const onJoin = useCallback(() => {
-    if (joinKey.trim() && isRoomKeyValid(joinKey.trim())) {
-      if (typeof window !== 'undefined') {
-        window.location.hash = `join/${joinKey.trim()}`;
-      }
-    }
-  }, [joinKey]);
-
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-b from-green-50 to-blue-50 dark:from-gray-900 dark:to-gray-800 text-gray-900 dark:text-gray-200 p-4">
-      <div className="text-center max-w-md w-full">
-        <h1 className="text-4xl font-bold mb-2 text-gray-800 dark:text-gray-100">
-          Floating Bridge
-        </h1>
-        <p className="text-lg mb-8 text-gray-600 dark:text-gray-400">
-          Singaporean Floating Bridge — a bridge game for two or more players
-        </p>
-        <div className="space-y-4">
-          <button
-            onClick={onCreate}
-            className="w-full py-4 px-6 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-medium text-lg transition-colors shadow-lg hover:shadow-xl"
-          >
-            <span className="flex items-center justify-center gap-2">
-              ✦ Create Game
-            </span>
-          </button>
-          <div className="flex items-center gap-3">
-            <div className="flex-1 h-px bg-gray-300 dark:bg-gray-600" />
-            <span className="text-sm text-gray-500 dark:text-gray-400">or</span>
-            <div className="flex-1 h-px bg-gray-300 dark:bg-gray-600" />
-          </div>
-          <div>
-            <label className="text-sm text-gray-500 dark:text-gray-400 block mb-1">
-              Paste invite key
-            </label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={joinKey}
-                onChange={(e) => setJoinKey(e.target.value)}
-                placeholder="e.g. abc123..."
-                onKeyDown={(e) => { if (e.key === 'Enter') onJoin(); }}
-                className="flex-1 px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
-              />
-              <button
-                onClick={onJoin}
-                disabled={!joinKey.trim() || !isRoomKeyValid(joinKey.trim())}
-                className="px-4 py-3 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                Join
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+    <GameTable
+      state={game.state}
+      rules={game.rules}
+      humanHand={game.state.hands[game.seat]}
+      humanSeat={game.seat}
+      legalPlays={game.legalPlays}
+      availableCallCards={game.availableCallCards}
+      legalBids={game.legalBids}
+      canPass={game.canPass}
+      statusText={game.statusText}
+      isHumanTurn={game.isHumanTurn}
+      pauseAfterTrick={game.pauseAfterTrick}
+      awaitingContinue={game.awaitingContinue}
+      onBid={game.handleHumanBid}
+      onPass={game.handleHumanPass}
+      onCallCard={game.handleHumanCallCard}
+      onPlayCard={game.handleHumanPlayCard}
+      onOpenTutorial={() => game.setShowTutorial(true)}
+      onCloseTutorial={() => game.setShowTutorial(false)}
+      onNewHand={game.handleNewHand}
+      onSetRules={game.handleSetRules}
+      onSetPauseAfterTrick={game.handleSetPauseAfterTrick}
+      onContinue={game.handleContinue}
+      showTutorial={game.showTutorial}
+      onHost={onHost}
+    />
   );
-}
-
-/**
- * Solo fallback — mounted only after a hand ends (ResultPanel "Next hand").
- * The real entry point is GameHome (home screen with create/join buttons).
- */
-function GameSolo() {
-  const [roomKey, setRoomKey] = useState<string | null>(null);
-
-  const onCreate = useCallback(async () => {
-    try {
-      const { roomKey: newRoomKey } = await makeBroker().createRoom();
-      if (!isRoomKeyValid(newRoomKey)) {
-        throw new Error('minted room key failed validation');
-      }
-      setRoomKey(newRoomKey);
-      if (typeof window !== 'undefined') {
-        window.location.hash = `host/${newRoomKey}`;
-      }
-    } catch (err) {
-      console.error('Failed to create game', err);
-    }
-  }, []);
-
-  if (roomKey) {
-    return <GameHost key={`host-${roomKey}`} roomKey={roomKey} />;
-  }
-
-  // Satisfy noUnusedLocals: the callback is used in GameHome's Create button
-  void onCreate;
-  return <GameHome />;
 }
 
 /**
  * Entry component. Picks the game variant from the current location on mount:
  * - `#host/<roomKey>` = host (authoritative, persists on F5)
  * - `#join/<roomKey>` = peer
- * - none = solo (with option to create a host room)
+ * - none = solo (the default screen; host a game from the table header)
  */
 function App() {
   // Read the join key once from the URL; it is only relevant on mount.
@@ -299,7 +248,7 @@ function App() {
   ) : joinKey ? (
     <GamePeer key={joinKey} roomKey={joinKey} />
   ) : (
-    <GameSolo />
+    <SoloGame />
   );
 
   return <GameErrorBoundary>{game}</GameErrorBoundary>;

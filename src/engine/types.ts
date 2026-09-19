@@ -225,13 +225,36 @@ export function createDeck(): Card[] {
   return deck;
 }
 
-export function shuffleDeck(deck: Card[]): Card[] {
+/**
+ * Deterministic PRNG factory. Creates a fresh mulberry32 stream from a numeric
+ * seed so a deal is reproducible from the seed alone. Pure JS, no library.
+ */
+export function createRng(seed: number): () => number {
+  let a = seed >>> 0;
+  return function mulberry32(): number {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * Fisher-Yates shuffle driven by an injected PRNG instead of Math.random, so a
+ * shuffle is reproducible from the seed that produced the stream.
+ */
+export function shuffleDeckWithRng(deck: Card[], rng: () => number): Card[] {
   const shuffled = [...deck];
   for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(rng() * (i + 1));
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
   return shuffled;
+}
+
+export function shuffleDeck(deck: Card[]): Card[] {
+  return shuffleDeckWithRng(deck, Math.random);
 }
 
 export function dealCards(deck: Card[]): Card[][] {

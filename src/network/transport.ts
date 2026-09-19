@@ -42,6 +42,7 @@ import { rememberSeat } from './peer';
 import { makeAiDecision } from '../ai/aiPlayer';
 import type { PlayerIndex } from '../engine/types';
 import type { GameState, Card, Strain, GameState as EngineState } from '../engine/types';
+import { DEFAULT_RULES } from '../engine/types';
 import {
   makeBid,
   callPartner,
@@ -51,6 +52,8 @@ import {
   startAuction,
   startNextHand,
   rehydrateGameState,
+  randomDeal,
+  seededDeal,
 } from '../engine/gameEngine';
 
 /**
@@ -119,6 +122,17 @@ export interface MakeTransportOptions {
    * the host should deal new.
    */
   restoreSnapshot?: GameState;
+  /**
+   * Host only. When a seed is supplied, fresh deals use a seeded PRNG so the
+   * deal is reproducible from the seed alone (deterministic bot-fill and F5
+   * reproducibility of a fresh deal). It is complementary to `restoreSnapshot`,
+   * which already reproduces the full state; the seeded path is NOT used when a
+   * snapshot is restored. Peers ignore it: in this host-authoritative design
+   * only the host deals, and peers render the authoritative GAME_STATE snapshot,
+   * so the deal never diverges. Left unthreaded for peers to keep the change
+   * minimal.
+   */
+  seed?: number;
   /**
    * Host only. When true, the host does NOT start the auction on room creation.
    * Instead, the game stays in DEALING phase and the host must call
@@ -314,9 +328,15 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
 
   let currentSeat: PlayerIndex | undefined;
 
+  // Deal source for fresh hands. When a seed is supplied, every fresh deal
+  // (this initial placeholder plus every startNextHand) draws from ONE seeded
+  // stream, so the host and any seeded peer derive identical hands. Without the
+  // seed this falls back to randomDeal (true randomness) as before.
+  const dealFn = opts.seed !== undefined ? seededDeal(opts.seed) : randomDeal;
+
   // Authoritative engine state (host mode). Every applied command broadcasts a
   // fresh snapshot so host and every peer render the same source of truth.
-  let state: EngineState = createInitialState();
+  let state: EngineState = createInitialState(0, DEFAULT_RULES, dealFn);
   // Latest canonicalized snapshot. Delivered to an `onGameState` subscriber that
   // registers after the async init has already broadcast (the returned promise
   // resolves after init runs), so a late consumer never misses the current state.
@@ -511,7 +531,7 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
     sendNewHand() {
       if (!opts.isHost) return;
       try {
-        state = startAuction(startNextHand(state));
+        state = startAuction(startNextHand(state, dealFn));
         broadcastState(state);
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
@@ -522,7 +542,7 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
       if (!opts.isHost) return;
       started = true;
       try {
-        state = startAuction(startNextHand(state));
+        state = startAuction(startNextHand(state, dealFn));
         broadcastState(state);
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);

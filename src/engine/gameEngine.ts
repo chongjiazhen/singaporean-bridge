@@ -5,7 +5,7 @@ import type {
   Strain, GameRules, SideKnowledge
 } from './types';
 import {
-  createDeck, shuffleDeck, dealCards, sortHand,
+  createDeck, shuffleDeck, shuffleDeckWithRng, createRng, dealCards, sortHand,
   isHigherBid, isValidLevel, cardsEqual, contractFor, bidToString,
   findCardInHand, removeCardFromHand, isWash,
   PLAYER_NAMES, PLAYERS, DEFAULT_RULES, MIN_LEVEL, MAX_LEVEL
@@ -17,7 +17,24 @@ const toPlayerIndex = (n: number): PlayerIndex => n as PlayerIndex;
 /** Redeal cap, so an unreachable wash minimum cannot hang the deal. The last deal is then played. */
 export const MAX_WASHES = 1000;
 
-const randomDeal = () => dealCards(shuffleDeck(createDeck()));
+/** Default (unseeded) deal: fresh Math.random stream every call. Kept so all
+ * existing callers/tests that expect true randomness keep passing unchanged. */
+export const randomDeal = () => dealCards(shuffleDeck(createDeck()));
+
+/**
+ * Build a deal closure seeded from `seed`. A single `rng` is created ONCE and
+ * every `deal()` call draws the next hand from the SAME stream. This is the
+ * critical property for the wash loop (gameEngine re-invokes `deal()` until
+ * every hand clears the wash minimum): a single advancing stream yields a
+ * sequence of DISTINCT hands, so a washable deal is eventually replaced instead
+ * of reproducing the same bad hand and spinning to MAX_WASHES (a silent hang).
+ * Two independent `seededDeal(seed)` closures draw the same sequence, so a
+ * deal is byte-reproducible from its seed alone.
+ */
+export const seededDeal = (seed: number): (() => Card[][]) => {
+  const rng = createRng(seed);
+  return () => dealCards(shuffleDeckWithRng(createDeck(), rng));
+};
 
 /** Deal a hand, washing and redealing while any hand is below the wash minimum. `deal` is injectable for tests. */
 export function createInitialState(
@@ -350,9 +367,9 @@ export function getFirstLeader(strain: Strain, declarer: PlayerIndex): PlayerInd
   return strain === 'NoTrump' ? declarer : toPlayerIndex((declarer + 1) % 4);
 }
 
-export function startNextHand(state: GameState): GameState {
+export function startNextHand(state: GameState, deal: () => Card[][] = randomDeal): GameState {
   const nextDealer = toPlayerIndex((state.dealer + 1) % 4);
-  return createInitialState(nextDealer, state.rules);
+  return createInitialState(nextDealer, state.rules, deal);
 }
 
 export function setRules(state: GameState, rules: Partial<GameRules>): GameState {
