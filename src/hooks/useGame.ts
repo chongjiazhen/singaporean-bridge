@@ -180,12 +180,15 @@ export function useGame(opts?: {
       // reshuffling. Peers never restore (they just re-subscribe to the host).
       restoreSnapshot: isHost ? readHostSnapshot(opts!.roomKey!) : undefined,
       seed: opts?.seed,
+      // Forward so a host stays in DEALING (no auction, no bots) until it
+      // explicitly starts the game; peers may join and be seated first.
+      waitForPeers: opts?.waitForPeers,
     });
     handle.then((t: Transport) => {
       setTransport(t);
     });
     return () => { void handle.then((t: Transport) => t.destroy()); };
-  }, [mode, opts?.roomKey, opts?.isHost, opts?.broker, opts?.seed]);
+  }, [mode, opts?.roomKey, opts?.isHost, opts?.broker, opts?.seed, opts?.waitForPeers]);
 
   const [rules, setRulesState] = useState<GameRules>(loadRules);
   // Solo mode seeds a local engine here. In host/peer modes this same value is only
