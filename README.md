@@ -11,14 +11,3 @@ npm ci
 npm run dev        # local dev server
 npx vitest run     # engine tests
 ```
-
-## Deploy
-
-GitHub Pages serves the `docs/` folder on `main`. There is no CI step: build, commit, push.
-
-```sh
-npm run build      # tsc + vite build -> docs/
-git add docs
-git commit -m "deploy: <what changed>"
-git push
-```
