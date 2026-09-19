@@ -72,7 +72,7 @@ function GameHost({
   // effect in useGame into a render loop. roomKey is fixed for the mount
   // (the key prop remounts on any change), so a one-time memo is safe.
   const broker = useMemo(() => makeTransportBroker(roomKey, true, 0), [roomKey]);
-  const game = useGame({ roomKey, isHost: true, broker });
+  const game = useGame({ roomKey, isHost: true, broker, waitForPeers: true });
 
   if (game.connectionError) {
     return (
@@ -111,6 +111,8 @@ function GameHost({
       onSetPauseAfterTrick={game.handleSetPauseAfterTrick}
       onContinue={game.handleContinue}
       showTutorial={game.showTutorial}
+      canStartGame={game.canStartGame}
+      onStartGame={game.handleStartGame}
     />
   );
 }
