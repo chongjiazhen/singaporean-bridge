@@ -83,31 +83,3 @@ export class ReclaimMap {
     this.map.clear();
   }
 }
-
-/**
- * Assigns seats to connections by arrival order.
- *
- * `arrivalOrder` maps connId -> arrival position (1-based, 1 = first joined).
- * seat = (hostSeat + arrivalPosition) % 4. Ties (same arrival position) are
- * broken deterministically by lexicographically smaller connId.
- */
-export function assignSeat(
-  hostSeat: PlayerIndex,
-  arrivalOrder: Map<string, number>
-): Map<string, PlayerIndex> {
-  const result = new Map<string, PlayerIndex>();
-  if (arrivalOrder.size === 0) return result;
-
-  const sorted = [...arrivalOrder].sort((a, b) => {
-    if (a[1] !== b[1]) return a[1] - b[1];
-    return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0;
-  });
-
-  sorted.forEach(([connId, _arrival], index) => {
-    const arrivalPosition = index + 1;
-    const seat = ((hostSeat + arrivalPosition) % 4) as PlayerIndex;
-    result.set(connId, seat);
-  });
-
-  return result;
-}

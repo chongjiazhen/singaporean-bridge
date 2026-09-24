@@ -70,8 +70,8 @@ export interface TransportBroker {
   connect(roomKey: string): Promise<void>;
 
   // ---- host side ----
-  /** A new human peer has joined this room. */
-  onPeerConnect(cb: (peerId: string) => void): void;
+  /** A new human peer has joined this room; broker provides its seat. */
+  onPeerConnect(cb: (peerId: string, seat: PlayerIndex) => void): void;
   /** A human peer has left this room. */
   onPeerDisconnect(cb: (peerId: string) => void): void;
   /** A frame arrived from `peerId`, in arrival order on that peer's channel. */
@@ -186,7 +186,7 @@ export interface Transport {
 export class InMemoryBroker implements TransportBroker {
   private roomKey?: string;
 
-  private peerConnectCbs = new Set<(peerId: string) => void>();
+  private peerConnectCbs = new Set<(peerId: string, seat: PlayerIndex) => void>();
   private peerDisconnectCbs = new Set<(peerId: string) => void>();
   private inboundCbs = new Set<(peerId: string, frame: Frame) => void>();
   private readyCbs = new Set<(info: { peerId: string; seat: PlayerIndex }) => void>();
@@ -204,7 +204,7 @@ export class InMemoryBroker implements TransportBroker {
     this.roomKey = roomKey;
   }
 
-  onPeerConnect(cb: (peerId: string) => void): void {
+  onPeerConnect(cb: (peerId: string, seat: PlayerIndex) => void): void {
     this.peerConnectCbs.add(cb);
   }
   onPeerDisconnect(cb: (peerId: string) => void): void {
@@ -225,8 +225,8 @@ export class InMemoryBroker implements TransportBroker {
   }
 
   /** Test helper: fire a peer-join on the broker. */
-  __emitPeerConnect(peerId: string): void {
-    this.peerConnectCbs.forEach((cb) => cb(peerId));
+  __emitPeerConnect(peerId: string, seat: PlayerIndex): void {
+    this.peerConnectCbs.forEach((cb) => cb(peerId, seat));
   }
   /** Test helper: feed an inbound frame from a peer. */
   __emitInbound(peerId: string, frame: Frame): void {
@@ -284,32 +284,6 @@ function applyInboundCommand(state: EngineState, seat: PlayerIndex, frame: Frame
 }
 
 /**
- * Seat incoming connections by arrival order.
- *
- * seat = (hostSeat + arrivalPosition) % 4, where arrivalPosition is the 1-based
- * position at which the connection joined. Ties (same position) are broken
- * deterministically by lexicographically smaller connectionId.
- */
-function assignSeats(
-  hostSeat: PlayerIndex,
-  arrivalOrder: Map<string, number>
-): Map<string, PlayerIndex> {
-  const result = new Map<string, PlayerIndex>();
-  if (arrivalOrder.size === 0) return result;
-  const sorted = [...arrivalOrder].sort((a, b) => {
-    if (a[1] !== b[1]) return a[1] - b[1];
-    if (a[0] < b[0]) return -1;
-    if (a[0] > b[0]) return 1;
-    return 0;
-  });
-  sorted.forEach(([connId, _pos], index) => {
-    const arrivalPosition = index + 1;
-    result.set(connId, ((hostSeat + arrivalPosition) % 4) as PlayerIndex);
-  });
-  return result;
-}
-
-/**
  * Build a transport handle for the current instance.
  *
  * In host mode it runs the authoritative engine, seats incoming peers by
@@ -344,7 +318,7 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
   // const peers = new Set<string>();
   const peers: Set<string> = new Set();
 
-  const arrivalOrder = new Map<string, number>();
+  const peerSeatMap = new Map<string, PlayerIndex>();
   const humanSeats = new Set<PlayerIndex>();
 
   // Host mode only: guard to prevent bot moves and auction start until the
@@ -395,8 +369,10 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
     frame: Frame,
     explicitSeat?: PlayerIndex,
   ) => {
-    const seat: PlayerIndex | undefined = explicitSeat ??
-      assignSeats(opts.hostSeat ?? 0, arrivalOrder).get(peerId);
+    // Seat for an inbound peer frame comes from the broker-provided map
+    // (recorded in onPeerConnect). The host's own and bot moves always pass
+    // an explicit seat.
+    const seat: PlayerIndex | undefined = explicitSeat ?? peerSeatMap.get(peerId);
     if (seat === undefined) {
       handlers.onCommandCb?.(frame);
       return;
@@ -580,22 +556,19 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
       // no auction yet — the host's UI will show a "Start Game" button.
       // Delivery is suppressed until startGame is called (see broadcastState).
       broadcastState(state);
-      // Host seats incoming peers by arrival order.
-      broker.onPeerConnect((peerId) => {
-        const isNew = !arrivalOrder.has(peerId);
-        if (isNew) {
-          arrivalOrder.set(peerId, arrivalOrder.size + 1);
-          peers.add(peerId);
-        }
-        const seat = assignSeats(opts.hostSeat ?? 0, arrivalOrder).get(peerId);
-        if (seat !== undefined) {
-          currentSeat = seat;
-          humanSeats.add(seat); // Track this seat as occupied by a human
-          handlers.onPeerAssignedCb?.({ seat, peerId });
-        }
-        // A peer that joins (or refreshes back) after the deal must immediately
-        // receive the current authoritative state, not wait for the next move.
-        // Without this a late joiner sees nothing until the host's next mutation.
+      // Host seats incoming peers by arrival order (broker now provides seat).
+      broker.onPeerConnect((peerId, seat) => {
+        // Record peer and its seat.
+        peers.add(peerId);
+        // Store mapping for later cleanup.
+        peerSeatMap.set(peerId, seat);
+        // Track human seat occupancy.
+        humanSeats.add(seat);
+        // Update currentSeat for host (only relevant for host UI).
+        currentSeat = seat;
+        // Notify UI about new peer assignment.
+        handlers.onPeerAssignedCb?.({ seat, peerId });
+        // Deliver latest snapshot if available.
         if (latestSnapshot) {
           const snapshot: Frame = { type: 'GAME_STATE', data: latestSnapshot };
           void broker.deliverToPeer(peerId, wireFrame(snapshot));
@@ -603,6 +576,19 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
       });
       broker.onInboundFrame((peerId, frame) => {
         applyCommand(peerId, frame);
+      });
+      // Handle peer disconnect: clean up state so the seat bot-fills.
+      broker.onPeerDisconnect((peerId) => {
+        peers.delete(peerId);
+        const seat = peerSeatMap.get(peerId);
+        if (seat !== undefined) {
+          humanSeats.delete(seat);
+          peerSeatMap.delete(peerId);
+        }
+        // If the disconnected seat was the current player, trigger bot move.
+        if (state.currentPlayer !== null && !humanSeats.has(state.currentPlayer) && state.currentPlayer !== (opts.hostSeat ?? 0)) {
+          maybeBotMove(state);
+        }
       });
     } else {
       // Peer mode: remember seat, render snapshots, forward commands.
