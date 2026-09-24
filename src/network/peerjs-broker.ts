@@ -45,7 +45,7 @@ export class PeerJsBroker implements TransportBroker {
   private connections = new Map<string, any>();
 
   // Callbacks
-  private onPeerConnectCb: ((peerId: string) => void) | null = null;
+  private onPeerConnectCb: ((peerId: string, seat: PlayerIndex) => void) | null = null;
   private onPeerDisconnectCb: ((peerId: string) => void) | null = null;
   private onInboundFrameCb: ((peerId: string, frame: Frame) => void) | null = null;
   private onPeerReadyCb: ((info: { peerId: string; seat: PlayerIndex }) => void) | null = null;
@@ -182,7 +182,7 @@ export class PeerJsBroker implements TransportBroker {
           conn.send(assignmentFrame);
         }
 
-        this.onPeerConnectCb?.(peerId);
+        this.onPeerConnectCb?.(peerId, seat);
         this.onPeerReadyCb?.({ peerId, seat });
       } else {
         // Peer mode: wait for PLAYER_ASSIGNMENT from host
@@ -218,7 +218,7 @@ export class PeerJsBroker implements TransportBroker {
     return ((this.hostSeat + arrivalPosition) % 4) as PlayerIndex;
   }
 
-  onPeerConnect(cb: (peerId: string) => void): void {
+  onPeerConnect(cb: (peerId: string, seat: PlayerIndex) => void): void {
     this.onPeerConnectCb = cb;
   }
 

@@ -23,7 +23,8 @@ describe('makeTransport - host mode', () => {
       assigned = info;
     });
     await tick();
-    broker.__emitPeerConnect('p1');
+    // Broker now provides seat; seat 1 for first peer (hostSeat=0, arrivalPosition=1 -> (0+1)%4=1)
+    broker.__emitPeerConnect('p1', 1 as PlayerIndex);
     expect(assigned).not.toBeNull();
     expect(assigned!.peerId).toBe('p1');
     expect((assigned!.seat as number) >= 0 && assigned!.seat < 4).toBe(true);
@@ -34,7 +35,7 @@ describe('makeTransport - host mode', () => {
     const broker = new InMemoryBroker();
     const t = await makeTransport({ roomKey: 'r', isHost: true, broker, hostSeat: 0 });
     await tick();
-    broker.__emitPeerConnect('p1');
+    broker.__emitPeerConnect('p1', 1 as PlayerIndex);
     // The auction has not started, so the engine rejects the BID and the host
     // sends an ERROR frame back to the peer. Either way, a frame is delivered.
     broker.__emitInbound('p1', { type: 'BID', data: { level: 1, strain: 'Diamonds' } });
@@ -50,9 +51,9 @@ describe('makeTransport - host mode', () => {
     const t = await makeTransport({ roomKey: 'r', isHost: true, broker, hostSeat: 0 });
     await tick();
     // Host auto-starts the auction. p1 lands on the current bidding seat; p2 one past it.
-    broker.__emitPeerConnect('p1');
+    broker.__emitPeerConnect('p1', 1 as PlayerIndex);
     await tick();
-    broker.__emitPeerConnect('p2');
+    broker.__emitPeerConnect('p2', 2 as PlayerIndex);
     t.onError((reason) => {
       errors.push(reason);
     });

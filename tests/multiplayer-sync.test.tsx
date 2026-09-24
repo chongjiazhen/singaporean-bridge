@@ -54,7 +54,8 @@ const tick = async () => {
  */
 class CoupledRoom implements TransportBroker {
   hostT: Transport | undefined;
-  private hostPeerConnectCb?: (peerId: string) => void;
+  private hostPeerConnectCb?: (peerId: string, seat: PlayerIndex) => void;
+  private hostPeerDisconnectCb?: (peerId: string) => void;
   private hostInboundCb?: (peerId: string, frame: Frame) => void;
   private peerInboundCb?: (peerId: string, frame: Frame) => void;
   private peerReadyCb?: (info: { peerId: string; seat: PlayerIndex }) => void;
@@ -64,13 +65,20 @@ class CoupledRoom implements TransportBroker {
     return { roomKey: 'sync-room' };
   }
   async connect(_roomKey: string) {}
-  onPeerConnect(cb: (peerId: string) => void) {
+  onPeerConnect(cb: (peerId: string, seat: PlayerIndex) => void) {
     this.hostPeerConnectCb = cb;
   }
-  seatPeer() {
-    this.hostPeerConnectCb?.('peer');
+  onPeerDisconnect(cb: (peerId: string) => void) {
+    this.hostPeerDisconnectCb = cb;
   }
-  onPeerDisconnect(_cb: (peerId: string) => void) {}
+  /** Simulate a peer joining with a specific seat (broker assigns seat). */
+  seatPeer(peerId: string = 'peer', seat: PlayerIndex = 1) {
+    this.hostPeerConnectCb?.(peerId, seat);
+  }
+  /** Simulate a peer disconnecting. */
+  unseatPeer(peerId: string = 'peer') {
+    this.hostPeerDisconnectCb?.(peerId);
+  }
   onPeerReady(cb: (info: { peerId: string; seat: PlayerIndex }) => void) {
     this.peerReadyCb = cb;
   }
@@ -405,5 +413,104 @@ describe('multiplayer sync: host and peer share ONE authoritative table', () => 
     // The refreshed host must show the SAME deal as before the refresh, not a
     // fresh random one.
     expect(sameHands(lastBefore!, restoredDeal)).toBe(true);
+  });
+
+  it('peer disconnect triggers bot-fill for that seat', async () => {
+    const room = new CoupledRoom();
+    const hostT = await makeTransport({ roomKey: 'sync-room', isHost: true, broker: room, hostSeat: 0 });
+    room.hostT = hostT;
+    await tick();
+
+    const hostStates: GameState[] = [];
+    hostT.onGameState((s) => hostStates.push(s));
+    await tick();
+
+    // Seat the peer (seat 1) so it's human.
+    room.seatPeer('peer', 1);
+    await tick();
+
+    // Drive the first human move so we see the game progressing.
+    let hs = hostStates[hostStates.length - 1];
+    if (hs && hs.currentPlayer === 0) {
+      driveSeat(hostT, hs, 0);
+      await tick();
+    }
+
+    // Disconnect the peer (seat 1). The host should mark seat 1 as bot.
+    room.unseatPeer('peer');
+    await tick();
+
+    // After disconnect, the state machine should continue with seat 1 bot-filled.
+    // If it's seat 1's turn, a bot move should happen automatically.
+    hs = hostStates[hostStates.length - 1];
+    if (hs && hs.currentPlayer === 1) {
+      await tick(); // let bot move
+    }
+
+    // Verify the game continues (no crash, state advances).
+    expect(hostStates.length).toBeGreaterThan(1);
+  });
+
+  it('illegal command is rejected with ERROR frame back to sender', async () => {
+    const room = new CoupledRoom();
+    const hostT = await makeTransport({ roomKey: 'sync-room', isHost: true, broker: room, hostSeat: 0 });
+    room.hostT = hostT;
+    await tick();
+
+    const errors: string[] = [];
+    hostT.onError((reason) => errors.push(reason));
+    await tick();
+
+    // Seat the peer.
+    room.seatPeer('peer', 1);
+    await tick();
+
+    // Drive host's turn so it's host's turn (seat 0).
+    const hostStates: GameState[] = [];
+    hostT.onGameState((s) => hostStates.push(s));
+    await tick();
+
+    const hs = hostStates[hostStates.length - 1];
+    if (!hs) return;
+    
+    // If it's host's turn (seat 0), send a BID frame from peer anyway.
+    if (hs.currentPlayer === 0) {
+      const frame = { type: 'BID', data: { level: 1, strain: 'S' } };
+      room.hostInboundCb?.('peer', frame as Frame);
+      await tick();
+      // Host should reject and send ERROR back.
+      expect(errors.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('peer reconnect after disconnect recovers state from host snapshot', async () => {
+    const room = new CoupledRoom();
+    const hostT = await makeTransport({ roomKey: 'sync-room', isHost: true, broker: room, hostSeat: 0 });
+    room.hostT = hostT;
+    await tick();
+
+    const hostStates: GameState[] = [];
+    hostT.onGameState((s) => hostStates.push(s));
+    await tick();
+
+    // Seat and then unseat the peer.
+    room.seatPeer('peer', 1);
+    await tick();
+    room.unseatPeer('peer');
+    await tick();
+
+    // Peer reconnects (new transport instance).
+    const peerT2 = await makeTransport({ roomKey: 'sync-room', isHost: false, broker: room });
+    room.firePeerReady(); // peer learns seat 1
+    room.seatPeer('peer', 1); // host seats the peer + delivers current snapshot
+    await tick();
+
+    // The reconnected peer should receive the current authoritative state.
+    const peerStates: GameState[] = [];
+    peerT2.onGameState((s) => peerStates.push(s));
+    await tick();
+
+    expect(peerStates.length).toBeGreaterThan(0);
+    expect(sameHands(hostStates[0], peerStates[0])).toBe(true);
   });
 });

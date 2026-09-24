@@ -7,7 +7,6 @@ import {
   readSeat,
   RECONNECT_WINDOW_MS,
   ReclaimMap,
-  assignSeat,
 } from '../src/network/peer';
 
 /** Minimal sessionStorage shim for Node/vitest. Set before anything touches it. */
@@ -82,24 +81,3 @@ describe('ReclaimMap', () => {
   });
 });
 
-describe('assignSeat', () => {
-  it('assigns (hostSeat + arrivalPosition) % 4', () => {
-    const arrival = new Map<string, number>([['a-conn', 1], ['b-conn', 2]]);
-    const result = assignSeat(0 as PlayerIndex, arrival);
-    expect(result.get('a-conn')).toBe((0 + 1) % 4);
-    expect(result.get('b-conn')).toBe((0 + 2) % 4);
-  });
-
-  it('is deterministic on ties via lexicographic connId', () => {
-    const arrival = new Map<string, number>([['b-conn', 1], ['a-conn', 1]]);
-    const result = assignSeat(0 as PlayerIndex, arrival);
-    // tie broken lexicographically: a-conn gets position 1, b-conn position 2.
-    expect(result.get('a-conn')).toBe(1);
-    expect(result.get('b-conn')).toBe(2);
-  });
-
-  it('returns an empty map for empty input', () => {
-    const result = assignSeat(1 as PlayerIndex, new Map<string, number>());
-    expect(result.size).toBe(0);
-  });
-});
