@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, Component, type ReactNode } from 'react';
+import { useState, useCallback, useMemo, useEffect, Component, type ReactNode } from 'react';
 import { GameTable } from './components/GameTable';
 import { useGame } from './hooks/useGame';
 import { makeTransportBroker } from './network/roomBroker';
@@ -233,15 +233,30 @@ function SoloGame() {
 }
 
 /**
- * Entry component. Picks the game variant from the current location on mount:
+ * Entry component. Picks the game variant from the current location:
  * - `#host/<roomKey>` = host (authoritative, persists on F5)
  * - `#join/<roomKey>` = peer
  * - none = solo (the default screen; host a game from the table header)
+ *
+ * Listens for hashchange so navigating via location.hash works without refresh.
  */
 function App() {
-  // Read the join key once from the URL; it is only relevant on mount.
-  const hostKey = useState(() => parseHostKey())[0];
-  const joinKey = useState(() => hostKey ? null : parseJoinKey())[0];
+  const [hostKey, setHostKey] = useState(() => parseHostKey());
+  const [joinKey, setJoinKey] = useState(() => hostKey ? null : parseJoinKey());
+
+  // Keep hash state in sync with URL. Navigating via location.hash (e.g. from
+  // onHost) would otherwise require a manual refresh because React only reads
+  // the initial hash from the useState initializer.
+  useEffect(() => {
+    const onHashChange = () => {
+      const hk = parseHostKey();
+      const jk = hk ? null : parseJoinKey();
+      setHostKey(hk);
+      setJoinKey(jk);
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
 
   const game = hostKey ? (
     <GameHost key={`host-${hostKey}`} roomKey={hostKey} />
