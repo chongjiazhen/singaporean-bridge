@@ -162,6 +162,25 @@ export class PeerJsBroker implements TransportBroker {
             this.arrivalOrder.set(peerId, this.nextArrivalPosition++);
           }
           seat = this.assignSeat(peerId);
+          // Guard: if the assigned seat is already occupied by another peer, 
+          // find the next available seat (0..3). This prevents two peers from
+          // getting the same seat due to modulo wrapping.
+          let collisionCount = 0;
+          const maxAttempts = 10;
+          while (collisionCount < maxAttempts && this.seatMap.has(peerId)) {
+            // Check if seat is occupied by someone else (not by this peerId)
+            const occupiedByAnother = Array.from(this.seatMap.entries()).some(
+              ([otherId, s]) => otherId !== peerId && s === seat
+            );
+            if (occupiedByAnother) {
+              // Find the next available seat
+              const attempted = (++this.nextArrivalPosition - 1) % 4;
+              seat = attempted as PlayerIndex;
+              collisionCount++;
+            } else {
+              break;
+            }
+          }
           this.reclaimMap.set(peerId, seat, now);
         }
         

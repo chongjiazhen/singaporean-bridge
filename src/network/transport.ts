@@ -593,8 +593,13 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
         peerSeatMap.set(peerId, seat);
         // Track human seat occupancy.
         humanSeats.add(seat);
-        // Update currentSeat for host (only relevant for host UI).
-        currentSeat = seat;
+        // The host's currentSeat (for UI rendering) is its own fixed hostSeat,
+        // not the peer's seat. Peers have their own transports with separate
+        // currentSeat state (set in onPeerReady). This prevents the host from
+        // rendering as a peer.
+        if (opts.hostSeat !== undefined) {
+          currentSeat = opts.hostSeat;
+        }
         // Notify UI about new peer assignment.
         handlers.onPeerAssignedCb?.({ seat, peerId });
         // Deliver latest snapshot if available.
