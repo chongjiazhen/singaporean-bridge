@@ -560,6 +560,28 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
     },
   };
 
+  // Peer mode: register callbacks BEFORE connecting so we don't miss
+  // frames sent immediately by the host (PLAYER_ASSIGNMENT, GAME_STATE).
+  // These callbacks capture the transport's mutable state via closure.
+  if (!opts.isHost) {
+    broker.onPeerReady(({ seat }) => {
+      currentSeat = seat;
+      rememberSeat(opts.roomKey, seat);
+    });
+    broker.onInboundFrame((_peerId, frame) => {
+      if (frame.type === 'GAME_STATE') {
+        // Track the latest canonicalized snapshot for late subscribers.
+        latestSnapshot = canonicalize<GameState>(frame.data as GameState);
+        // Deliver rehydrated state (with live Sets) to the UI, not the
+        // wire-serialized arrays. Rebuild the Sets that canonicalize flattens.
+        const rehydrated = rehydrateGameState(frame.data as GameState);
+        handlers.onGameStateCb?.(rehydrated);
+        return;
+      }
+      handlers.onCommandCb?.(frame);
+    });
+  }
+
   // Host calls createRoom() (fixed-ID Peer); peer calls connect() (random-ID
   // Peer that dials the host). Arrow wrapper preserves the broker's `this`.
   const init = opts.isHost
@@ -624,24 +646,6 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
         if (state.currentPlayer !== null && !humanSeats.has(state.currentPlayer) && state.currentPlayer !== (opts.hostSeat ?? 0)) {
           maybeBotMove(state);
         }
-      });
-    } else {
-      // Peer mode: remember seat, render snapshots, forward commands.
-      broker.onPeerReady(({ seat }) => {
-        currentSeat = seat;
-        rememberSeat(opts.roomKey, seat);
-      });
-      broker.onInboundFrame((_peerId, frame) => {
-        if (frame.type === 'GAME_STATE') {
-          // Track the latest canonicalized snapshot for late subscribers.
-          latestSnapshot = canonicalize<GameState>(frame.data as GameState);
-          // Deliver rehydrated state (with live Sets) to the UI, not the
-          // wire-serialized arrays. Rebuild the Sets that canonicalize flattens.
-          const rehydrated = rehydrateGameState(frame.data as GameState);
-          handlers.onGameStateCb?.(rehydrated);
-          return;
-        }
-        handlers.onCommandCb?.(frame);
       });
     }
   }).catch((err: unknown) => {
