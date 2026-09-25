@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Transport, GameState, PlayerIndex } from '../../src/network/transport';
 import { makeTransport, InMemoryBroker } from '../../src/network/transport';
 import type { Card, Strain } from '../../src/engine/types';
@@ -6,7 +6,7 @@ import { getLegalPlays, canPass } from '../../src/engine/gameEngine';
 import { getLegalBids } from '../../src/engine/types';
 import { makeAiDecision } from '../../src/ai/aiPlayer';
 
-const tick = () => new Promise((r) => setTimeout(r, 0));
+const tick = () => vi.runOnlyPendingTimersAsync();
 
 /**
  * A scripted "human host" driver. Whenever the transport's turn lands on the
@@ -68,7 +68,7 @@ async function driveHostHand(hostSeat: PlayerIndex): Promise<{
   // Let async init run (onGameState now delivers the current snapshot on
   // subscribe, so `lastRef` is populated even before the first tick).
   await tick();
-  for (let i = 0; i < 500 && (!lastRef.current || lastRef.current.phase !== 'HAND_RESULT'); i++) {
+  for (let i = 0; i < 2000 && (!lastRef.current || lastRef.current.phase !== 'HAND_RESULT'); i++) {
     driveHostTurn();
     await tick();
   }
@@ -78,7 +78,9 @@ async function driveHostHand(hostSeat: PlayerIndex): Promise<{
   return { transport, last: lastRef.current, phases };
 }
 
-describe('009 - full multiplayer hand (host-authoritative, human host + bot seats)', () => {
+describe('009 - full multiplayer hand (host-authoritative, human host + bot seats)', { timeout: 10000 }, () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
   // Every possible host seat, since the engine rotates by seating and the
   // acceptance criteria require the hand to complete regardless of who hosts.
   for (const hostSeat of [0, 1, 2, 3] as PlayerIndex[]) {

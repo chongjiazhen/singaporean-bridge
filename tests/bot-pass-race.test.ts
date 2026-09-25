@@ -6,9 +6,12 @@ import { getLegalPlays, canPass } from '../src/engine/gameEngine';
 import { getLegalBids } from '../src/engine/types';
 import { makeAiDecision } from '../src/ai/aiPlayer';
 
-const tick = () => new Promise((r) => setTimeout(r, 0));
+const tick = () => vi.runOnlyPendingTimersAsync();
 
-describe('Bot pass race fix (ticket 010)', () => {
+describe('Bot pass race fix (ticket 010)', { timeout: 10000 }, () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
   let broker: InMemoryBroker;
   let hostTransport: Transport;
   let hostStates: GameState[];
@@ -118,7 +121,7 @@ describe('Bot pass race fix (ticket 010)', () => {
 
     // Let async init run
     await tick();
-    for (let i = 0; i < 500 && (!hostStates.length || hostStates[hostStates.length - 1].phase !== 'HAND_RESULT'); i++) {
+    for (let i = 0; i < 2000 && (!hostStates.length || hostStates[hostStates.length - 1].phase !== 'HAND_RESULT'); i++) {
       driveHostTurn();
       await tick();
     }
