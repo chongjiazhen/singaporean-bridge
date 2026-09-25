@@ -1,11 +1,19 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { PlayerIndex, GameState } from '../src/engine/types';
 import { makeTransport, InMemoryBroker } from '../src/network/transport';
 
+// Use fake timers for bot delay tests
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
 // Test that bots make moves when it's their turn
 describe('Bot fill', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('bot makes a bid when it is the bot seat turn in auction', async () => {
     const broker = new InMemoryBroker();
     // Host is seat 0, peer joins and gets seat 1, seats 2 and 3 are bots
@@ -14,7 +22,7 @@ describe('Bot fill', () => {
     t.onGameState((state) => {
       currentState = state;
     });
-    await tick();
+    await vi.advanceTimersByTimeAsync(0);
     // Start the auction (normally host calls startGame, but waitForPeers=false
     // means the auction starts on createRoom)
     t.startGame();
@@ -22,9 +30,9 @@ describe('Bot fill', () => {
     // No peers connect - seats 1, 2, 3 are all bots
     // First bidder is seat 1 (dealer=0, firstBidder=1)
     // This is a bot seat, so bot should make a move
-    await tick();
-    await tick();
-    await tick();
+    await vi.advanceTimersByTimeAsync(0);
+    // Advance timers for bot delays (600ms for first move, then more)
+    await vi.advanceTimersByTimeAsync(2000);
 
     // Concrete bot effect: the bot seat advanced the auction by recording a
     // bid. A null AI decision (bots not acting) leaves bids empty and fails here.
@@ -39,6 +47,7 @@ describe('Bot fill', () => {
   }, 5000);
   
   it('human peer joining takes over bot seat', async () => {
+    vi.useRealTimers();
     const broker = new InMemoryBroker();
     const t = await makeTransport({ roomKey: 'r', isHost: true, broker, hostSeat: 0 });
     await tick();

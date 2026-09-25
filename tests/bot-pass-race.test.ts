@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { Transport, GameState, PlayerIndex } from '../src/network/transport';
 import { makeTransport, InMemoryBroker } from '../src/network/transport';
 import type { Card, Strain } from '../src/engine/types';
