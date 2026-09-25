@@ -167,8 +167,8 @@ export class PeerJsBroker implements TransportBroker {
           // getting the same seat due to modulo wrapping.
           let collisionCount = 0;
           const maxAttempts = 10;
-          while (collisionCount < maxAttempts && this.seatMap.has(peerId)) {
-            // Check if seat is occupied by someone else (not by this peerId)
+          // Check if the computed seat is occupied by ANY other peer
+          while (collisionCount < maxAttempts) {
             const occupiedByAnother = Array.from(this.seatMap.entries()).some(
               ([otherId, s]) => otherId !== peerId && s === seat
             );

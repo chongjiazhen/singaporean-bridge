@@ -560,10 +560,50 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
     },
   };
 
-  // Peer mode: register callbacks BEFORE connecting so we don't miss
-  // frames sent immediately by the host (PLAYER_ASSIGNMENT, GAME_STATE).
+  // Both host and peer: register callbacks BEFORE connecting/creating room
+  // so we don't miss frames sent immediately.
   // These callbacks capture the transport's mutable state via closure.
-  if (!opts.isHost) {
+  if (opts.isHost) {
+    // Host mode: register onPeerConnect before createRoom so we catch early peers
+    broker.onPeerConnect((peerId, seat) => {
+      // Record peer and its seat.
+      peers.add(peerId);
+      // Store mapping for later cleanup.
+      peerSeatMap.set(peerId, seat);
+      // Track human seat occupancy.
+      humanSeats.add(seat);
+      // The host's currentSeat (for UI rendering) is its own fixed hostSeat,
+      // not the peer's seat. Peers have their own transports with separate
+      // currentSeat state (set in onPeerReady). This prevents the host from
+      // rendering as a peer.
+      if (opts.hostSeat !== undefined) {
+        currentSeat = opts.hostSeat;
+      }
+      // Notify UI about new peer assignment.
+      handlers.onPeerAssignedCb?.({ seat, peerId });
+      // Deliver latest snapshot if available.
+      if (latestSnapshot) {
+        const snapshot: Frame = { type: 'GAME_STATE', data: latestSnapshot };
+        void broker.deliverToPeer(peerId, wireFrame(snapshot));
+      }
+    });
+    broker.onInboundFrame((peerId, frame) => {
+      applyCommand(peerId, frame);
+    });
+    broker.onPeerDisconnect((peerId) => {
+      peers.delete(peerId);
+      const seat = peerSeatMap.get(peerId);
+      if (seat !== undefined) {
+        humanSeats.delete(seat);
+        peerSeatMap.delete(peerId);
+      }
+      // If the disconnected seat was the current player, trigger bot move.
+      if (state.currentPlayer !== null && !humanSeats.has(state.currentPlayer) && state.currentPlayer !== (opts.hostSeat ?? 0)) {
+        maybeBotMove(state);
+      }
+    });
+  } else {
+    // Peer mode: register onPeerReady/onInboundFrame before connect
     broker.onPeerReady(({ seat }) => {
       currentSeat = seat;
       rememberSeat(opts.roomKey, seat);
@@ -608,45 +648,6 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
       // no auction yet — the host's UI will show a "Start Game" button.
       // Delivery is suppressed until startGame is called (see broadcastState).
       broadcastState(state);
-      // Host seats incoming peers by arrival order (broker now provides seat).
-      broker.onPeerConnect((peerId, seat) => {
-        // Record peer and its seat.
-        peers.add(peerId);
-        // Store mapping for later cleanup.
-        peerSeatMap.set(peerId, seat);
-        // Track human seat occupancy.
-        humanSeats.add(seat);
-        // The host's currentSeat (for UI rendering) is its own fixed hostSeat,
-        // not the peer's seat. Peers have their own transports with separate
-        // currentSeat state (set in onPeerReady). This prevents the host from
-        // rendering as a peer.
-        if (opts.hostSeat !== undefined) {
-          currentSeat = opts.hostSeat;
-        }
-        // Notify UI about new peer assignment.
-        handlers.onPeerAssignedCb?.({ seat, peerId });
-        // Deliver latest snapshot if available.
-        if (latestSnapshot) {
-          const snapshot: Frame = { type: 'GAME_STATE', data: latestSnapshot };
-          void broker.deliverToPeer(peerId, wireFrame(snapshot));
-        }
-      });
-      broker.onInboundFrame((peerId, frame) => {
-        applyCommand(peerId, frame);
-      });
-      // Handle peer disconnect: clean up state so the seat bot-fills.
-      broker.onPeerDisconnect((peerId) => {
-        peers.delete(peerId);
-        const seat = peerSeatMap.get(peerId);
-        if (seat !== undefined) {
-          humanSeats.delete(seat);
-          peerSeatMap.delete(peerId);
-        }
-        // If the disconnected seat was the current player, trigger bot move.
-        if (state.currentPlayer !== null && !humanSeats.has(state.currentPlayer) && state.currentPlayer !== (opts.hostSeat ?? 0)) {
-          maybeBotMove(state);
-        }
-      });
     }
   }).catch((err: unknown) => {
     // Surface signaling failures (timeout, network error) to the UI so the
