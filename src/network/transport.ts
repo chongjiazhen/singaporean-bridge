@@ -406,6 +406,22 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
     if (humanSeats.has(currentPlayer)) return;
     
     // This is a bot seat - make an AI decision
+    // Add a delay for card plays in TRICK_PLAY so humans can see the trick resolution
+    const isTrickPlay = currentState.phase === 'TRICK_PLAY';
+    const startingNewTrick = isTrickPlay
+      && currentState.tricks.current?.cards.length === 0
+      && currentState.tricks.completed.length > 0;
+    const delay = startingNewTrick ? 1200 : (isTrickPlay ? 600 : 0);
+    
+    // For non-TRICK_PLAY phases (AUCTION, PARTNER_CALL), move immediately for test compatibility
+    if (delay === 0) {
+      executeBotMove(currentState, currentPlayer);
+    } else {
+      setTimeout(() => executeBotMove(currentState, currentPlayer), delay);
+    }
+  };
+  
+  const executeBotMove = (currentState: EngineState, currentPlayer: PlayerIndex) => {
     try {
       const decision = makeAiDecision(currentState, currentPlayer);
       let frame: Frame | null = null;
