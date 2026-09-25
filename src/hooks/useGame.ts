@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type {
   Card,
   Strain,
@@ -166,6 +166,8 @@ export function useGame(opts?: {
     opts?.roomKey ? (opts.isHost ? 'host' : 'peer') : 'solo';
 
   const [transport, setTransport] = useState<Transport | null>(null);
+  const waitForPeersRef = useRef(opts?.waitForPeers === true);
+  if (opts?.waitForPeers === true) waitForPeersRef.current = true;
 
   // Create the transport once; clean it up on unmount.
   useEffect(() => {
@@ -182,7 +184,7 @@ export function useGame(opts?: {
       seed: opts?.seed,
       // Forward so a host stays in DEALING (no auction, no bots) until it
       // explicitly starts the game; peers may join and be seated first.
-      waitForPeers: opts?.waitForPeers,
+      waitForPeers: waitForPeersRef.current,
     });
     handle.then((t: Transport) => {
       setTransport(t);
@@ -351,6 +353,6 @@ export function useGame(opts?: {
     mode,
     seat,
     connectionError,
-    canStartGame: mode === 'host' && opts?.waitForPeers !== undefined && state.phase === 'DEALING',
+    canStartGame: mode === 'host' && waitForPeersRef.current && state.phase === 'DEALING',
   };
 }
