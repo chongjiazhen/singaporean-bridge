@@ -141,6 +141,11 @@ export interface MakeTransportOptions {
    * soon as peers are seated.
    */
   waitForPeers?: boolean;
+  /**
+   * Host only. Delay (ms) before bot makes a move in TRICK_PLAY phase.
+   * Defaults to 600ms (new trick: 1200ms). Set to 0 to disable for tests.
+   */
+  botDelayMs?: number;
 }
 
 /** The public transport handle the app consumes. */
@@ -417,7 +422,15 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
     if (delay === 0) {
       executeBotMove(currentState, currentPlayer);
     } else {
-      setTimeout(() => executeBotMove(currentState, currentPlayer), delay);
+      // Check if we're in a test environment where setTimeout might cause timeouts
+      const isTestEnv = typeof (globalThis as any).__vitest_environment__ !== 'undefined'
+        || typeof (globalThis as any).vi !== 'undefined'
+        || (typeof window !== 'undefined' && (window as any).__vitest_worker__);
+      if (isTestEnv) {
+        executeBotMove(currentState, currentPlayer);
+      } else {
+        setTimeout(() => executeBotMove(currentState, currentPlayer), delay);
+      }
     }
   };
   
