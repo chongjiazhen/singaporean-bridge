@@ -54,6 +54,26 @@ export class PeerJsBroker implements TransportBroker {
   private nextArrivalPosition = 1;
   private reclaimMap = new ReclaimMap();
 
+  // Client ID storage key prefix
+  private static readonly CLIENT_ID_PREFIX = 'singaporean-multiplayer.client-id.';
+
+  /** Get or create a persistent client ID for this peer (stored in localStorage). */
+  private getOrCreateClientId(): string {
+    const key = `${PeerJsBroker.CLIENT_ID_PREFIX}${this.roomKey}`;
+    let clientId = localStorage.getItem(key);
+    if (!clientId) {
+      clientId = crypto.randomUUID();
+      localStorage.setItem(key, clientId);
+    }
+    return clientId;
+  }
+
+  /** Map from persistent client ID to ephemeral PeerJS ID. */
+  private clientIdToPeerId = new Map<string, string>();
+
+  /** Map from ephemeral PeerJS ID to persistent client ID. */
+  private peerIdToClientId = new Map<string, string>();
+
   constructor(config: PeerJsBrokerConfig) {
     this.roomKey = config.roomKey;
     this.isHost = config.isHost;
@@ -125,6 +145,11 @@ export class PeerJsBroker implements TransportBroker {
       if (existing && existing.open) return;
       const conn = this.peer.connect(this.roomKey, {
         reliable: true,
+      });
+      // Send persistent client ID to host so seat can be reclaimed on refresh
+      conn.on('open', () => {
+        const clientId = this.getOrCreateClientId();
+        conn.send({ type: 'CLIENT_ID', data: { clientId } });
       });
       this.setupConnection(conn, 'host');
     }
@@ -210,7 +235,32 @@ export class PeerJsBroker implements TransportBroker {
 
     conn.on('data', (data: any) => {
       const frame = data as Frame;
-      if (frame.type === 'PLAYER_ASSIGNMENT' && !this.isHost) {
+      if (frame.type === 'CLIENT_ID' && this.isHost) {
+        // Handle persistent client ID from peer - map it to ephemeral PeerJS ID
+        const clientData = frame.data as { clientId: string };
+        const clientId = clientData.clientId;
+        this.clientIdToPeerId.set(clientId, peerId);
+        this.peerIdToClientId.set(peerId, clientId);
+        
+        // Check if this client ID had a previous seat assignment
+        const oldPeerId = this.clientIdToPeerId.get(clientId);
+        if (oldPeerId && oldPeerId !== peerId) {
+          // This is a returning client - reclaim their seat
+          const oldSeat = this.seatMap.get(oldPeerId);
+          if (oldSeat !== undefined) {
+            // Transfer seat assignment to new peerId
+            this.seatMap.set(peerId, oldSeat);
+            // Update reclaimMap with new peerId
+            this.reclaimMap.set(peerId, oldSeat, Date.now());
+            // Clean up old mappings
+            this.seatMap.delete(oldPeerId);
+            this.arrivalOrder.set(peerId, this.arrivalOrder.get(oldPeerId) ?? this.nextArrivalPosition++);
+            this.arrivalOrder.delete(oldPeerId);
+            this.peerIdToClientId.set(peerId, clientId);
+            this.peerIdToClientId.delete(oldPeerId);
+          }
+        }
+      } else if (frame.type === 'PLAYER_ASSIGNMENT' && !this.isHost) {
         const assignment = frame.data as { peerId: string; seat: PlayerIndex };
         this.onPeerReadyCb?.({ peerId: assignment.peerId, seat: assignment.seat });
       } else {

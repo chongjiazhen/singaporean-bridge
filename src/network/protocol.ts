@@ -14,7 +14,8 @@ export type FrameType =
   | 'PLAY_CARD'
   | 'GAME_STATE'
   | 'PLAYER_ASSIGNMENT'
-  | 'ERROR';
+  | 'ERROR'
+  | 'CLIENT_ID';
 
 /** A single transport frame: a type plus its frame-specific payload. */
 export type Frame = {
@@ -26,7 +27,7 @@ export type Frame = {
 const INBOUND_COMMAND_TYPES: readonly FrameType[] = ['BID', 'CALL_PARTNER', 'PLAY_CARD'];
 
 const FRAME_TYPES: ReadonlySet<string> = new Set<string>([
-  'BID', 'CALL_PARTNER', 'PLAY_CARD', 'GAME_STATE', 'PLAYER_ASSIGNMENT', 'ERROR',
+  'BID', 'CALL_PARTNER', 'PLAY_CARD', 'GAME_STATE', 'PLAYER_ASSIGNMENT', 'ERROR', 'CLIENT_ID',
 ]);
 
 /** Serialize a frame to a lossless wire string. */
