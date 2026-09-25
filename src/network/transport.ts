@@ -338,11 +338,12 @@ export function makeTransport(opts: MakeTransportOptions): Promise<Transport> {
     }
     // Deliver the authoritative engine state (with live Sets) to the local UI,
     // not the wire-serialized canonicalized version (which has arrays).
-    // Only deliver if the game has started (host called startGame or not
-    // waitForPeers). Peers always see state; host only sees it after start.
+    // Host in DEALING phase (waitForPeers) still needs to see its own hand.
+    // Only suppress PEER broadcast, not local UI delivery.
     if (opts.isHost && opts.waitForPeers && !started) {
-      // Suppress snapshot delivery until startGame is called. Peers still
-      // receive their initial state via onPeerConnect's replay.
+      // Host in pre-game lobby: deliver locally so UI shows the authoritative deal,
+      // but don't broadcast to peers (they get it via onPeerConnect replay).
+      handlers.onGameStateCb?.(newState);
     } else {
       handlers.onGameStateCb?.(newState);
     }
